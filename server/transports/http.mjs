@@ -776,7 +776,7 @@ function serveApp(res, dist, relPath) {
 
 function uiNotBuiltPage() {
   return `<!doctype html><html lang="es"><head><meta charset="utf-8">
-<title>AGORA — interfaz sin construir</title>
+<title>Polymind — interfaz sin construir</title>
 <style>body{font:15px/1.6 system-ui,sans-serif;background:#0b1020;color:#e8ecf4;margin:0;display:grid;place-items:center;min-height:100vh}
 .card{max-width:640px;padding:32px;background:#141a2e;border:1px solid #26314f;border-radius:16px}
 code{background:#0b1020;border:1px solid #26314f;border-radius:6px;padding:2px 6px;font-family:ui-monospace,monospace}

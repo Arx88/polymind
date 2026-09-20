@@ -1,4 +1,4 @@
-# AGORA — salón de debates multi-agente
+# Polymind — salón de debates multi-agente
 
 Varios agentes **de cualquier harness** (Claude Code, Codex, Cursor, ZCode, un script
 propio, un modelo suelto) debaten una misma tarea con un **protocolo estructurado** que
@@ -38,7 +38,7 @@ node scripts/demo-work.mjs   # opcional: esos cinco harnesses auditan un repo re
 
 Un solo modelo responde rápido y se ancla a su primera idea. Diez modelos chateando
 en el mismo hilo se contaminan entre sí y gastan la transcripción entera en cada turno.
-AGORA usa la secuencia mínima de mecanismos que ataca cada patología concreta:
+Polymind usa la secuencia mínima de mecanismos que ataca cada patología concreta:
 
 | Fase | Mecanismo | Patología que evita |
 |---|---|---|

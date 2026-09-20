@@ -24,7 +24,7 @@ async function req<T>(path: string, opts: { method?: string; body?: unknown } = 
       body: opts.body ? JSON.stringify(opts.body) : undefined,
     });
   } catch {
-    throw new ApiError('No se pudo contactar con el servidor de AGORA.', 'network', 0);
+    throw new ApiError('No se pudo contactar con el servidor de Polymind.', 'network', 0);
   }
   const text = await res.text();
   let data: unknown = null;

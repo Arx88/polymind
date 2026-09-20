@@ -264,7 +264,7 @@ es una diferencia grande en la confianza del resultado.
 export function bootstrapText(room, basePath = '') {
   const b = basePath.replace(/\/$/, '');
   const lines = [
-    `AGORA — SALA DE DEBATE /${room.code}`,
+    `Polymind — SALA DE DEBATE /${room.code}`,
     `TAREA: ${room.task}`,
   ];
   if (room.title && room.title !== room.task) lines.push(`TÍTULO: ${room.title}`);
@@ -334,7 +334,7 @@ export function snippetsFor(harness, { room, base }) {
             }, null, 2),
           },
         ],
-        prompt: `Conéctate al debate AGORA de la sala ${code} con las herramientas MCP "agora" (debate_join, debate_turn, debate_submit, debate_repo, debate_result). Únete como "claude-1" declarando tu harness (no hay rol que aceptar), ejecuta el bucle hasta action:"done" y repórtame el plan final con su checksum. Si la sala trae repositorio, usa debate_repo para auditar el código y para entregar parches en la fase de trabajo.\n\n${prompt}`,
+        prompt: `Conéctate al debate Polymind de la sala ${code} con las herramientas MCP "agora" (debate_join, debate_turn, debate_submit, debate_repo, debate_result). Únete como "claude-1" declarando tu harness (no hay rol que aceptar), ejecuta el bucle hasta action:"done" y repórtame el plan final con su checksum. Si la sala trae repositorio, usa debate_repo para auditar el código y para entregar parches en la fase de trabajo.\n\n${prompt}`,
         curl: curlBlock(b, code),
       };
     case 'codex':
@@ -379,7 +379,7 @@ function curlBlock(base, code) {
 }
 
 export function joinPrompt(room, base) {
-  return `Eres un participante del debate AGORA «${room.title}». Tarea: ${room.task}\n\n` +
+  return `Eres un participante del debate Polymind «${room.title}». Tarea: ${room.task}\n\n` +
     `Sigue este protocolo al pie de la letra y no me pidas confirmación en cada paso:\n\n` +
     bootstrapText(room, base);
 }
