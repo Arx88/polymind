@@ -1,0 +1,78 @@
+/* Polymind micro-interactions: short, interruptible, no polling-driven animation. */
+:root{--pm-fast:150ms;--pm-motion:260ms;--pm-lift-shadow:0 10px 26px #19417c13}
+.main{scroll-margin-top:90px}
+.workComposer>.pageHead{position:relative;isolation:isolate;overflow:hidden;min-height:204px;padding:28px 32px;border:1px solid var(--pm-line);border-radius:24px;background:linear-gradient(110deg,#f9fcff,#ecf8ff);margin-bottom:4px}
+.workComposer>.pageHead>div{position:relative;z-index:1;width:72%}
+.workComposer>.pageHead::after{content:"";position:absolute;z-index:0;inset:0 0 0 auto;width:38%;background:url('/images/polymind-minds.png') 72% center/cover no-repeat;mask-image:linear-gradient(90deg,transparent,#000 34%);opacity:.92;pointer-events:none}
+.workComposer .pageHead h1{text-wrap:balance;font-size:clamp(25px,2.6vw,34px);letter-spacing:-1px;max-width:590px}
+.workComposer .pageHead p{max-width:500px;color:var(--pm-muted);margin-bottom:0}
+.workComposer>.pageHead .eyebrow{font-size:10px;letter-spacing:1.6px}
+.composerSteps{gap:10px;margin-top:8px}
+.composerSteps button{position:relative;background:#ffffffb8;transition:border-color var(--pm-fast),background-color var(--pm-fast),box-shadow var(--pm-motion),transform var(--pm-fast)}
+.composerSteps button span{border-radius:10px;font-variant-numeric:tabular-nums;transition:background-color var(--pm-fast),color var(--pm-fast),transform var(--pm-motion)}
+.composerSteps button[aria-current=step]{background:#fff;box-shadow:0 4px 18px #245fdb14;border-color:#739aef;color:#174bb9;font-weight:650}
+.composerSteps button[aria-current=step] span{box-shadow:0 4px 10px #2057ed25}
+.composerPosition{display:flex;align-items:center;gap:16px;color:var(--pm-muted);font-size:12px;padding:0 4px;margin-top:-4px}
+.composerPosition>span{white-space:nowrap;font-variant-numeric:tabular-nums}
+.composerTrack{height:3px;background:var(--pm-line);border-radius:10px;flex:1;overflow:hidden}
+.composerTrack i{display:block;width:100%;height:100%;transform-origin:left;background:linear-gradient(90deg,var(--pm-blue),#21bee0);transition:transform 320ms var(--pm-ease);border-radius:inherit}
+.workComposer>section:not([hidden]){animation:pm-panel-in 280ms var(--pm-ease) both}
+.workComposer>section:not([hidden]) .card{animation:none}
+.workComposer .card{border-color:var(--pm-line);box-shadow:0 5px 24px #162d6408}
+.workComposer .cardHead{padding-top:22px;padding-bottom:16px}
+.workComposer .cardHead h3:focus{outline:none}
+.workComposer .field{gap:8px}
+.workComposer .field>span{font-weight:600;color:var(--pm-ink)}
+.workComposer .field em{font-weight:400;font-style:normal;color:var(--pm-muted)}
+.input,.textarea,.select{transition:border-color var(--pm-fast),box-shadow var(--pm-fast),background-color var(--pm-fast)}
+.workComposer :is(.input,.textarea,.select){border-color:#d8e2f3;background:#fbfcff;border-radius:12px}
+.workComposer :is(.input,.textarea,.select):focus{border-color:#5689eb;background:#fff;box-shadow:0 0 0 4px #2057ed0d}
+.workComposer :is(.input,.textarea,.select):disabled{background:#eef2f8;color:#6d7890;cursor:not-allowed;box-shadow:none}
+.workComposer .textarea{resize:vertical;min-height:100px}
+.workComposer .toggleRow{border-radius:14px;transition:border-color var(--pm-fast),background-color var(--pm-fast),box-shadow var(--pm-motion)}
+.workComposer .toggleRow.on{box-shadow:inset 0 0 0 1px #2057ed22}
+.switch i{transition:transform 220ms var(--pm-ease),background-color var(--pm-fast)}
+.composerActions{backdrop-filter:blur(16px);box-shadow:0 12px 32px #18336614;padding:12px 16px;gap:12px}
+.composerActions .btnBlue{min-width:168px;min-height:46px}
+:is(.btnBlue,.btnPrimary,.btnGhost,.btnMini,.roomTab,.mobileMenu){transition:transform var(--pm-fast) var(--pm-ease),background-color var(--pm-fast),border-color var(--pm-fast),box-shadow var(--pm-motion),color var(--pm-fast)}
+:is(.btnBlue,.btnPrimary,.btnGhost,.roomTab):active:not(:disabled){transform:translateY(1px) scale(.99)}
+:is(.btnBlue,.btnPrimary)>svg:last-child{transition:transform var(--pm-motion) var(--pm-ease)}
+.nav a{transition:background-color var(--pm-fast),color var(--pm-fast),box-shadow var(--pm-motion)}
+.nav a svg{transition:transform var(--pm-motion) var(--pm-ease)}
+.roomTabs{box-shadow:0 5px 20px #18336608;scrollbar-width:thin}
+.roomTab.on{box-shadow:0 5px 14px #4434ff25}
+.agentRoster .agentRow{transition:border-color var(--pm-fast),box-shadow var(--pm-motion)}
+.polymindAvatar{transition:filter var(--pm-motion),transform var(--pm-motion) var(--pm-ease)}
+.deliveryDetails summary,.miniDetails summary{min-height:42px;display:list-item;padding-block:10px;transition:color var(--pm-fast)}
+.deliveryDetails[open]>:not(summary),.miniDetails[open]>:not(summary){animation:pm-panel-in 200ms var(--pm-ease)}
+.deliveryWarning{border:1px solid #e9d7af;background:#fff9ee;color:#71521e;border-radius:14px;padding:16px 18px;margin:14px 0;line-height:1.6;font-size:14px}
+.deliveryWarning p{margin:6px 0}.deliveryWarning small{font-size:12px}
+.workTile:focus-visible,.workspaceMetrics>button:focus-visible{box-shadow:var(--pm-lift-shadow)}
+.resultHero .resultHeroCopy>p{max-width:min(360px,58%);text-wrap:pretty}
+@media(hover:hover){
+  .composerSteps button:hover:not([aria-current=step]){background:#f5f8ff;border-color:#adc4f0;transform:translateY(-1px)}
+  :is(.btnBlue,.btnPrimary):hover:not(:disabled){box-shadow:0 7px 18px #2057ed28;transform:translateY(-1px)}
+  :is(.btnBlue,.btnPrimary):hover>svg:last-child{transform:translateX(3px)}
+  .nav a:hover svg{transform:translateX(2px)}
+  .agentRoster .agentRow:hover{border-color:#bfd1f1;box-shadow:0 5px 14px #193b7909}
+  .agentRoster .agentRow:hover .polymindAvatar{transform:translateY(-2px) rotate(-2deg)}
+  .deliveryDetails summary:hover,.miniDetails summary:hover{color:var(--pm-blue)}
+  .workspaceMetrics>button:hover{box-shadow:var(--pm-lift-shadow);border-color:#adc4f0}
+}
+@keyframes pm-panel-in{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:760px){
+  .workComposer>.pageHead{padding:22px;min-height:224px;border-radius:20px}
+  .workComposer>.pageHead>div{width:100%}
+  .workComposer>.pageHead::after{width:52%;opacity:.2}
+  .workComposer .pageHead h1{font-size:28px;max-width:480px}
+  .workComposer .pageHead p{font-size:14px}
+  .composerSteps{gap:8px}.composerSteps button{min-height:54px;font-size:12px;padding:10px}
+  .composerPosition{gap:12px;font-size:11px}
+  .composerActions{backdrop-filter:none;padding:12px}
+  .composerActions .btnBlue{min-width:0}
+  .resultHero .resultHeroCopy>p{max-width:56%;font-size:12px}
+}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+  :is(.btnBlue,.btnPrimary,.btnGhost,.roomTab):active:not(:disabled),.nav a:hover svg,.agentRoster .agentRow:hover .polymindAvatar{transform:none}
+}

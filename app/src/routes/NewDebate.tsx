@@ -1,7 +1,7 @@
 // Convocar un debate: tarea, agenda de decisión, reglas y agentes esperados.
 // Al crear, se muestra la caja de invitación (lo único que el usuario debe hacer).
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { plural } from '../lib/format';
 import { navigate, rememberAdmin } from '../lib/router';
@@ -21,6 +21,17 @@ const EMPTY: AgendaDraft = { label: '', options: '', weight: 1 };
 export function NewDebate({ query }: { query: URLSearchParams }) {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [step, setStep] = useState(0);
+  const previousStep = useRef(step);
+  useEffect(() => {
+    if (previousStep.current === step) return;
+    previousStep.current = step;
+    const heading = document.querySelector<HTMLElement>('.workComposer > section:not([hidden]) .cardHead h3');
+    if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
+    const steps = document.querySelector('.composerSteps');
+    if (steps && steps.getBoundingClientRect().top < 100) {
+      window.scrollTo({ top: window.scrollY + steps.getBoundingClientRect().top - 100, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    }
+  }, [step]);
   const [template, setTemplate] = useState(query.get('template') || '');
   // `?from=CODE`: reabrir con la configuración de otra sala (incluida una ya cerrada).
   const [from, setFrom] = useState(query.get('from') || '');
@@ -297,6 +308,11 @@ export function NewDebate({ query }: { query: URLSearchParams }) {
       <nav className="composerSteps" aria-label="Pasos para crear un trabajo">
         {['Objetivo', 'Contexto y repositorio', 'Equipo y límites', 'Revisar y crear'].map((label, index) => <button key={label} aria-current={step === index ? 'step' : undefined} onClick={() => { setStep(index); setError(null); }}><span>{index + 1}</span>{label}</button>)}
       </nav>
+
+      <div className="composerPosition" aria-live="polite">
+        <span>Paso {step + 1} de 4 · {['Define el objetivo', 'Prepara el contexto', 'Configura el equipo', 'Comprueba y crea'][step]}</span>
+        <div className="composerTrack" aria-hidden="true"><i style={{ transform: `scaleX(${(step + 1) / 4})` }} /></div>
+      </div>
 
       {error && <ErrorBox message={error} />}
 
