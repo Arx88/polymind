@@ -1,0 +1,30 @@
+# Despliegue en Render: un servicio web Node con disco persistente.
+#
+# El motor guarda en `AGORA_DATA` el estado de las salas, los clones de trabajo y los
+# commits que produce el debate. Sin disco, cada reinicio se lleva por delante las salas
+# abiertas: la capa gratuita no admite discos, así que para probar sin gastar deja
+# `plan: free` y borra el bloque `disk:` — arranca igual, pero pierde el trabajo al
+# reiniciar (y la instancia se duerme tras 15 min sin visitas).
+services:
+  - type: web
+    name: agora
+    runtime: node
+    region: frankfurt
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Todo lo que el motor escribe (salas, workspaces, repositorios) vive aquí.
+      - key: AGORA_DATA
+        value: /var/agora-data
+      # El proxy de Render puede cerrar una petición antes que el long-poll de 120 s del motor:
+      # con 30 s el turno vuelve siempre por su propio pie y el manual dice lo mismo que cumple.
+      - key: AGORA_MAX_WAIT_SEC
+        value: "30"
+    disk:
+      name: agora-data
+      mountPath: /var/agora-data
+      sizeGB: 2

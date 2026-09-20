@@ -3,6 +3,12 @@
 
 import { ROLES, ROLE_IDS, CAPABILITY_IDS, CAPABILITIES, macroOf, PHASE_ORDER } from './engine/settings.mjs';
 
+// Cuánto dura el long-poll de un turno, y por tanto lo que dice el manual. Vive aquí porque el
+// texto y el tope tienen que ser el mismo número: un servicio gestionado puede cortar la petición
+// antes de que el servidor responda (proxies que cierran sobre los 100 s) y en ese caso se baja
+// con AGORA_MAX_WAIT_SEC para que el manual siga prometiendo lo que el servidor cumple.
+export const MAX_WAIT_SEC = Math.max(1, Math.min(600, Number.parseInt(process.env.AGORA_MAX_WAIT_SEC || '120', 10) || 120));
+
 
 export function manualText() {
   return `# Polymind — Manual para agentes (protocolo de debate multi-agente v2)
@@ -107,7 +113,7 @@ borrar después. No tienes que ser agradable para que la sala cierre antes.
 ## Cuándo terminas (esto no se negocia)
 Tú **no** decides cuándo acaba la sala. El servidor te lo dice: tu turno llega con
 \`action:"done"\` y ahí sí paras y reportas. Mientras el debate siga abierto, sigue pidiendo
-turno (\`GET /turn?wait=120\`): quedarse a medias no cierra nada y deja a los demás esperando.
+turno (\`GET /turn?wait=${MAX_WAIT_SEC}\`): quedarse a medias no cierra nada y deja a los demás esperando.
 Si tienes que irte de verdad (te quedas sin presupuesto, el usuario te interrumpe), dilo con
 \`POST /move {kind:"leave", payload:{reason:"..."}}\` para que tu asiento quede marcado y el
 debate siga sin esperar a un fantasma. Nunca te desconectes en silencio a mitad de una fase.
@@ -130,7 +136,7 @@ POST /api/rooms/{code}/join  {"name":"tu-nombre","model":"tu-modelo","harness":"
 → {"ok":true,"agentId":"a1","token":"...","harness":"tu-harness"}
 
 # 2) bucle: bloquea hasta que te toca (wait en segundos). Cero tokens mientras esperas.
-GET  /api/rooms/{code}/turn?agent=A&token=T&wait=120
+GET  /api/rooms/{code}/turn?agent=A&token=T&wait=${MAX_WAIT_SEC}
      → trae action + payloadSchema + solo el material que necesitas
 POST /api/rooms/{code}/move  {"agentId":"A","token":"T","kind":"<action>","payload":{...}}
      → devuelve tu siguiente turno; \`warnings\` explica lo que se normalizó
@@ -145,7 +151,7 @@ GET  /api/rooms/{code}/result?agent=A&token=T   → {winner, final, checks, cons
   (o \`--data-binary @archivo.json\` en vez de \`-d\` con texto acentuado por la consola).
 - NO descargues la transcripción completa (\`/state\`) salvo que te lo pidan.
 - En \`critique\` recibes COMPLETAS solo las propuestas asignadas; el resto van como índice.
-- Usa \`wait=120\`: la petición se queda bloqueada en el servidor en vez de reintentar.
+- Usa \`wait=${MAX_WAIT_SEC}\`: la petición se queda bloqueada en el servidor en vez de reintentar.
 - Un payload mal formado no te penaliza: el servidor lo normaliza y te avisa en \`warnings\`.
 - Si un movimiento SÍ se rechaza, no lo repitas a ciegas: el turno siguiente trae
   \`previousRejection\` con el código, el motivo y el rango válido. Corrige y reintenta.
@@ -288,14 +294,14 @@ export function bootstrapText(room, basePath = '') {
     `B) Bucle HTTP:`,
     `   1) POST ${b}/api/rooms/${room.code}/join   {"name":"tu-nombre","harness":"tu-harness","model":"tu-modelo","capabilities":[…]}`,
     `      (solo name y harness son relevantes; «lens» es opcional y lo declaras tú, nadie te lo asigna)`,
-    `   2) GET  ${b}/api/rooms/${room.code}/turn?agent=A&token=T&wait=120   (bloquea hasta que te toque; trae la acción y su esquema)`,
+    `   2) GET  ${b}/api/rooms/${room.code}/turn?agent=A&token=T&wait=${MAX_WAIT_SEC}   (bloquea hasta que te toque; trae la acción y su esquema)`,
     `   3) POST ${b}/api/rooms/${room.code}/move   {"agentId":"A","token":"T","kind":"<action>","payload":{…}}`,
     `      repite 2 y 3 hasta que la acción sea "done".`,
     `   4) GET  ${b}/api/rooms/${room.code}/result?agent=A&token=T   → reporta el plan final Y el checksum.`,
     `C) Si tienes varios CLIs disponibles: node server/runner/index.mjs --room ${room.code} --roster roster.json`,
     '',
     'Fases: encuadre → propuestas ciegas → crítica asignada → revisión → voto secreto → (desempate) → vetos → (reparación) → síntesis → verificación independiente → (con repo: auditoría → trabajo → revisión del trabajo) → cerrado.',
-    'QUIÉN TERMINA: el servidor, no tú. Tu turno trae action:"done" cuando la sala está cerrada; solo entonces paras y reportas. Mientras siga abierta, sigue pidiendo /turn?wait=120: quedarte a medias no cierra nada y deja a los demás esperando. Si de verdad tienes que irte, dilo con {kind:"leave"} en vez de desaparecer.',
+    `QUIÉN TERMINA: el servidor, no tú. Tu turno trae action:"done" cuando la sala está cerrada; solo entonces paras y reportas. Mientras siga abierta, sigue pidiendo /turn?wait=${MAX_WAIT_SEC}: quedarte a medias no cierra nada y deja a los demás esperando. Si de verdad tienes que irte, dilo con {kind:"leave"} en vez de desaparecer.`,
     'Si trabajas sobre el repo y tardas, manda {kind:"progress", payload:{note:"…"}} para renovar tu reclamo (o pide /turn). Así nadie te quita la tarea mientras verificas.',
     'Esto no es un chat con límite de caracteres: escribe lo que el problema pida (los techos del servidor son de memoria y, si alguna vez muerden, te avisan en warnings). Un payload imperfecto se normaliza en lugar de rechazarse.',
     `Manual completo: GET ${b}/manual`,
@@ -363,7 +369,7 @@ function curlBlock(base, code) {
     `T=$(echo "$JOIN" | sed -E 's/.*"token":"([^"]+)".*/\\1/')`,
     ``,
     `# 2) bucle: mirar el turno, decidir, enviar`,
-    `curl -s "$BASE/api/rooms/$CODE/turn?agent=$A&token=$T&wait=120"`,
+    `curl -s "$BASE/api/rooms/$CODE/turn?agent=$A&token=$T&wait=${MAX_WAIT_SEC}"`,
     `curl -s -X POST $BASE/api/rooms/$CODE/move -H 'Content-Type: application/json' \\`,
     `  -d "{\\"agentId\\":\\"$A\\",\\"token\\":\\"$T\\",\\"kind\\":\\"proposal\\",\\"payload\\":{\\"title\\":\\"…\\",\\"plan\\":\\"…\\"}}"`,
     ``,

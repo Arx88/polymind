@@ -19,7 +19,7 @@ import {
   previewEntry, previewFile, previewHeaders,
 } from '../engine/index.mjs';
 import { LiveHub, startClock } from './live.mjs';
-import { manualText, bootstrapText, snippetsFor, joinPrompt } from '../snippets.mjs';
+import { manualText, bootstrapText, snippetsFor, joinPrompt, MAX_WAIT_SEC } from '../snippets.mjs';
 import { listTemplates, getTemplate, roomInputFromTemplate, saveTemplate } from '../templates.mjs';
 import { TournamentManager } from '../tournament.mjs';
 
@@ -509,7 +509,7 @@ export function createAgora({ dataDir, appDistDir, clockMs = 1000 } = {}) {
     if (['/turn', '/state', '/result'].includes(sub)) authAgent(room, agentId, tok);
 
     if (m === 'GET' && sub === '/turn') {
-      const waitSec = Math.min(120, Math.max(0, parseInt(u.searchParams.get('wait') || '0', 10) || 0));
+      const waitSec = Math.min(MAX_WAIT_SEC, Math.max(0, parseInt(u.searchParams.get('wait') || '0', 10) || 0));
       const since = Math.max(0, parseInt(u.searchParams.get('since') || '0', 10) || 0);
       const turn = await hub.waitForTurn(code, agentId, waitSec, since);
       if (!turn) { sendJSON(res, 404, { ok: false, error: 'not_found', message: 'Sala no encontrada' }); return; }
