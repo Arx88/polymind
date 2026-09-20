@@ -12,12 +12,12 @@
 #     - key: AGORA_DATA
 #       value: /var/agora-data
 #   disk:
-#     name: agora-data
+#     name: polymind-data
 #     mountPath: /var/agora-data
 #     sizeGB: 2
 services:
   - type: web
-    name: agora
+    name: polymind
     runtime: node
     region: frankfurt
     plan: free

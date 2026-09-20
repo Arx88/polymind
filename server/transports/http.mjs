@@ -175,7 +175,7 @@ export function createAgora({ dataDir, appDistDir, clockMs = 1000 } = {}) {
     const u = new URL(req.url, 'http://local');
     const p = u.pathname.replace(/\/+$/, '') || '/';
     const m = req.method;
-    const base = `http://${req.headers.host || 'localhost'}`;
+    const base = `${protoOf(req)}://${req.headers.host || 'localhost'}`;
 
     if (m === 'OPTIONS') { send(res, 204, ''); return; }
 
@@ -666,7 +666,17 @@ function sendJSON(res, status, obj) { send(res, status, JSON.stringify(obj)); }
 function originOf(req) {
   const host = String(req.headers.host || '');
   if (!/^[A-Za-z0-9.:\[\]-]+$/.test(host)) return null;
-  return `http://${host}`;
+  return `${protoOf(req)}://${host}`;
+}
+
+// El esquema con el que llegó el cliente, no el que usa este proceso por dentro: detrás de un
+// proxy (Render y cualquier servicio gestionado) la conexión local es http y lo público es https.
+// Dar `http://…` a un agente le entrega una URL que redirige en vez de una que funciona, y a la
+// vista previa le deja una política que bloquea su propio iframe.
+function protoOf(req) {
+  const forwarded = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  if (forwarded === 'https' || forwarded === 'http') return forwarded;
+  return req.socket?.encrypted ? 'https' : 'http';
 }
 
 function httpError(res, err) {
