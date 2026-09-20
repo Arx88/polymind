@@ -1,7 +1,12 @@
 data/
 data-sim/
+# Salas de muestra para mirar la interfaz sin tocar la sala real.
+data-preview/
+data-contrast/
+data-preview-check/
 node_modules/
 dist/
 app/dist/
 *.log
 .DS_Store
+scripts/.scratch-*.mjs

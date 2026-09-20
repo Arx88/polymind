@@ -1,0 +1,38 @@
+{
+  "name": "agora",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Salón de debates multi-agente: el protocolo lo impone el servidor, el juicio lo ponen los agentes.",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server/index.mjs",
+    "dev": "node scripts/dev.mjs",
+    "dev:server": "node server/index.mjs",
+    "dev:app": "vite --config app/vite.config.ts",
+    "build": "vite build --config app/vite.config.ts",
+    "preview": "vite preview --config app/vite.config.ts",
+    "typecheck": "tsc -p app/tsconfig.json --noEmit",
+    "test": "node --test test/recovery.test.mjs && node --test test/engine.test.mjs && node --test test/agreement.test.mjs && node --test test/collaboration.test.mjs && node --test test/delivery.test.mjs && node --test test/storage.test.mjs && node --test test/preview.test.mjs && node --test test/work.test.mjs && node --test test/sim.mjs",
+    "test:agreement": "node --test test/agreement.test.mjs",
+    "test:engine": "node --test test/engine.test.mjs",
+    "test:storage": "node --test test/storage.test.mjs",
+    "test:preview": "node --test test/preview.test.mjs",
+    "test:work": "node --test test/work.test.mjs",
+    "test:e2e": "node --test test/sim.mjs",
+    "runner": "node server/runner/index.mjs",
+    "mcp": "node server/transports/mcp.mjs",
+    "demo": "node scripts/demo.mjs"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}

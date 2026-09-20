@@ -1,0 +1,30 @@
+{
+  "agents": [
+    {
+      "name": "Claude-1",
+      "cli": "claude",
+      "model": "claude-sonnet",
+      "capabilities": ["data", "logic", "synthesis"]
+    },
+    {
+      "name": "Codex-1",
+      "cli": "codex",
+      "model": "gpt-5-codex",
+      "capabilities": ["logic", "risk"]
+    },
+    {
+      "name": "ZCode-1",
+      "cli": "zcode",
+      "model": "glm-4",
+      "capabilities": ["synthesis", "creativity"]
+    },
+    {
+      "name": "CLI-propia",
+      "cli": "custom",
+      "command": "node test/fake-cli.mjs",
+      "model": "cli-propia",
+      "lens": "auditoría de coste",
+      "capabilities": ["risk"]
+    }
+  ]
+}

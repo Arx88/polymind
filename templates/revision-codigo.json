@@ -1,0 +1,18 @@
+{
+  "id": "revision-codigo",
+  "name": "Revisión de código",
+  "icon": "code",
+  "order": 5,
+  "description": "Auditar un módulo y planificar su refactor con prioridades claras.",
+  "roomTitle": "Revisión y refactor",
+  "task": "Revisa el módulo descrito (pega el código o su resumen en el contexto), enumera los problemas reales por severidad y propón un plan de refactor por fases.",
+  "context": "Pega aquí el código o el resumen del módulo. Incluye restricciones: compatibilidad, cobertura de pruebas, plazos.",
+  "criteria": "Los hallazgos deben ser reproducibles, el plan debe poder aplicarse por partes sin romper compatibilidad.",
+  "agenda": [
+    { "label": "Problema más grave", "options": ["Corrección (bug)", "Diseño/acoplamiento", "Rendimiento", "Seguridad", "Testabilidad"] },
+    { "label": "Estrategia de refactor", "options": ["Reescritura por partes", "Estrangulamiento (strangler)", "Paralelo con banderas", "Solo parches"] },
+    { "label": "Criterio de éxito", "options": ["Cobertura de pruebas", "Métricas de rendimiento", "Reducción de complejidad", "Cero cambios de contrato"] },
+    { "label": "Riesgo de la migración", "options": ["Bajo", "Medio", "Alto"], "weight": 1.5 }
+  ],
+  "settings": { "minAgents": 2, "expectedAgents": 3, "consensusThreshold": 0.75 }
+}

@@ -1,0 +1,19 @@
+{
+  "id": "estrategia-lanzamiento",
+  "name": "Estrategia de lanzamiento",
+  "icon": "rocket",
+  "order": 1,
+  "description": "Definir la estrategia go-to-market y validar los canales principales.",
+  "roomTitle": "Estrategia de lanzamiento",
+  "task": "Diseña la estrategia de lanzamiento de nuestro producto: a quién atacamos primero, con qué propuesta de valor y por qué canales, con un plan ejecutable de 90 días.",
+  "context": "Equipo pequeño, presupuesto limitado, producto ya en beta cerrada.",
+  "criteria": "Claridad del segmento elegido, viabilidad con el presupuesto, canales medibles y plan de 90 días ejecutable.",
+  "agenda": [
+    { "label": "Segmento objetivo", "options": ["PYME", "Mid-market", "Enterprise", "Prosumer"] },
+    { "label": "Propuesta de valor", "options": ["Ahorro de coste", "Velocidad", "Cumplimiento", "Simplicidad"] },
+    { "label": "Canal principal", "options": ["Venta directa", "Producto autoservicio", "Partners", "Comunidad"] },
+    { "label": "Modelo de precio", "options": ["Suscripción por asiento", "Uso medido", "Freemium", "Pago único"] },
+    { "label": "Riesgo principal", "options": ["Adquisición cara", "Churn temprano", "Competencia", "Soporte insostenible"], "weight": 1.5 }
+  ],
+  "settings": { "minAgents": 3, "expectedAgents": 4, "consensusThreshold": 0.75, "joinQuietMs": 120000 }
+}

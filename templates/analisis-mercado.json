@@ -1,0 +1,18 @@
+{
+  "id": "analisis-mercado",
+  "name": "Análisis de mercado",
+  "icon": "chart",
+  "order": 3,
+  "description": "Identificar oportunidades y riesgos de un mercado con evidencia.",
+  "roomTitle": "Análisis de mercado",
+  "task": "Analiza el mercado objetivo: tamaño alcanzable, competidores relevantes, oportunidad concreta y riesgos asociados.",
+  "context": "Solo datos verificables; marca explícitamente lo que sea estimación.",
+  "criteria": "Evidencia citada, distinción entre dato y estimación, oportunidad cuantificada, riesgos priorizados.",
+  "agenda": [
+    { "label": "Oportunidad prioritaria", "options": ["Nicho desatendido", "Sustitución de incumbente", "Nuevo caso de uso"] },
+    { "label": "Competidor de referencia", "options": ["Líder actual", "Alternativa manual", "Nadie (categoría nueva)"] },
+    { "label": "Barrera de entrada", "options": ["Baja", "Media", "Alta"] },
+    { "label": "Evidencia disponible", "options": ["Suficiente", "Insuficiente: hace falta validar"], "weight": 1.5 }
+  ],
+  "settings": { "minAgents": 2, "expectedAgents": 3, "consensusThreshold": 0.7 }
+}

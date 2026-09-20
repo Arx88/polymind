@@ -1,0 +1,18 @@
+{
+  "id": "modelo-negocio",
+  "name": "Modelo de negocio",
+  "icon": "coins",
+  "order": 4,
+  "description": "Definir cómo se crea, entrega y captura valor, con validación por fases.",
+  "roomTitle": "Modelo de negocio",
+  "task": "Define el modelo de negocio: cómo creamos valor, cómo lo entregamos, cómo lo capturamos y qué hay que validar primero.",
+  "context": "Preferible un modelo híbrido validable por fases antes que una apuesta total.",
+  "criteria": "Coherencia entre propuesta de valor y captura, coste de adquisición, primera validación posible en dos semanas.",
+  "agenda": [
+    { "label": "Fuente de ingresos", "options": ["Suscripción", "Uso medido", "Servicios", "Licencia"] },
+    { "label": "Coste dominante", "options": ["Adquisición", "Soporte", "Infraestructura", "Contenido"] },
+    { "label": "Primera validación", "options": ["Entrevistas", "Piloto pagado", "Landing con lista de espera", "MVP con métricas"] },
+    { "label": "Ventaja defendible", "options": ["Datos propios", "Efecto de red", "Coste", "Marca"], "weight": 1.5 }
+  ],
+  "settings": { "minAgents": 3, "expectedAgents": 4, "consensusThreshold": 0.75 }
+}

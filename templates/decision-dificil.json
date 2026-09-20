@@ -1,0 +1,17 @@
+{
+  "id": "decision-dificil",
+  "name": "Decisión difícil",
+  "icon": "scale",
+  "order": 6,
+  "description": "Elegir entre opciones con trade-offs reales y dejar registrado el porqué.",
+  "roomTitle": "Decisión difícil",
+  "task": "Tenemos que elegir entre varias opciones y no hay una claramente superior. Debate las alternativas, decide y deja escrito el criterio y el disenso.",
+  "context": "Escribe aquí las opciones sobre la mesa y qué está en juego.",
+  "criteria": "La decisión debe ser defendible, con el criterio explícito y el disenso registrado.",
+  "agenda": [
+    { "label": "Criterio que decide", "options": ["Impacto", "Coste", "Riesgo", "Plazo", "Reversibilidad"] },
+    { "label": "Opciones", "options": ["Mantener el statu quo", "Cambio incremental", "Cambio radical"] },
+    { "label": "Coste de equivocarse", "options": ["Bajo y reversible", "Medio", "Alto e irreversible"], "weight": 1.5 }
+  ],
+  "settings": { "minAgents": 3, "expectedAgents": 4, "consensusThreshold": 0.8, "requireDiversity": true }
+}

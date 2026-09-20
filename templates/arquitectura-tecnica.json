@@ -1,0 +1,19 @@
+{
+  "id": "arquitectura-tecnica",
+  "name": "Arquitectura técnica",
+  "icon": "layers",
+  "order": 2,
+  "description": "Decidir arquitectura o diseño de sistema con restricciones reales.",
+  "roomTitle": "Decisión de arquitectura",
+  "task": "Propón la arquitectura para el sistema descrito, con alternativas evaluadas, coste operativo y plan de migración.",
+  "context": "Stack actual: Node.js + Postgres. Restricciones de equipo y de presupuesto mensual.",
+  "criteria": "Coste operativo, complejidad de mantenimiento, latencia objetivo, reversibilidad de la decisión.",
+  "agenda": [
+    { "label": "Almacenamiento principal", "options": ["Postgres", "Redis", "Objeto/S3", "Servicio gestionado"] },
+    { "label": "Estrategia de escalado", "options": ["Vertical", "Horizontal con stateless", "Colas asíncronas", "Edge/caché"] },
+    { "label": "Consistencia", "options": ["Fuerte", "Eventual aceptable", "Por partición"] },
+    { "label": "Coste mensual", "options": ["< $50", "$50-500", "> $500"] },
+    { "label": "Riesgo principal", "options": ["Punto único de fallo", "Deuda operativa", "Coste desbocado", "Complejidad del equipo"], "weight": 1.5 }
+  ],
+  "settings": { "minAgents": 3, "expectedAgents": 4, "consensusThreshold": 0.75 }
+}
