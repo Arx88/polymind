@@ -22,6 +22,7 @@ import { LiveHub, startClock } from './live.mjs';
 import { manualText, bootstrapText, snippetsFor, joinPrompt, MAX_WAIT_SEC } from '../snippets.mjs';
 import { listTemplates, getTemplate, roomInputFromTemplate, saveTemplate } from '../templates.mjs';
 import { TournamentManager } from '../tournament.mjs';
+import { log as reg } from '../log.mjs';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -43,6 +44,110 @@ export function createAgora({ dataDir, appDistDir, clockMs = 1000 } = {}) {
   const tournaments = new TournamentManager({ hall, dir: dataDir });
   const here = path.dirname(fileURLToPath(import.meta.url));
   const dist = appDistDir || path.join(here, '..', '..', 'app', 'dist');
+
+  // ------------------------------------------------------------- registro de la sala
+  // Lo que el panel ve, el registro lo cuenta: cada cambio de fase, cada cierre y —cuando
+  // nadie mueve nada— el atasco con nombre y apellidos («fase work, 4 min sin actividad,
+  // esperando a MuseSpark desde hace 3 min»). Sin esto, una sala que no avanza solo se puede
+  // describir de memoria; con esto, se puede leer.
+  const lastPhase = new Map();   // code -> { status, phase, at }
+  const lastTouch = new Map();   // code -> ms del último movimiento o cambio
+  const stallLogged = new Map(); // code -> ms del último latido escrito
+
+  function touch(code, at = Date.now()) { lastTouch.set(code, at); }
+
+  // Cómo terminó la sala, en una línea: es la respuesta a «¿esta tarea se entregó?» sin abrir
+  // el panel ni leer el archivo de la sala.
+  function closedFields(room) {
+    const r = room.result || {};
+    return {
+      outcome: r.outcome || 'closed',
+      reason: r.reason || '',
+      winner: r.winner?.title || null,
+      consensus: r.consensus?.global ?? null,
+      integrated: r.stats?.integrated ?? null,
+      workItems: r.stats?.workItems ?? null,
+      durationMin: r.stats?.durationMin ?? null,
+      checksum: r.checksum || null,
+      deliveryKind: r.delivery?.kind || null,
+    };
+  }
+
+  function logRoomProgress(room) {
+    const prev = lastPhase.get(room.code);
+    const now = { status: room.status, phase: room.phase?.name || '?', at: Date.now() };
+    if (!prev) {
+      // Primera vez que este proceso ve la sala. Si ya venía cerrada (se cerró mientras el
+      // servidor estaba caído, o antes de arrancar) eso también es noticia: se deja dicho una
+      // vez, en vez de perderse por no tener un estado anterior con el que comparar.
+      lastPhase.set(room.code, now);
+      // Una sala que ya venía cerrada es noticia si se cerró hace poco (mientras el servidor
+      // estaba caído o dormido). Un archivo viejo no: eso solo llenaría el registro de un
+      // inventario que nadie lee.
+      const closedAt = Number(room.result?.closedAt || room.closedAt || 0);
+      if (room.status === 'closed' && closedAt && Date.now() - closedAt < 6 * 3600 * 1000) {
+        reg.info('room.seen_closed', { room: room.code, to: now.phase, closedAgoMin: Math.round((Date.now() - closedAt) / 60000), ...closedFields(room) });
+      }
+      return;
+    }
+    if (prev.phase === now.phase && prev.status === now.status) return;
+    const forSec = Math.round((now.at - prev.at) / 1000);
+    lastPhase.set(room.code, now);
+    const base = {
+      room: room.code,
+      from: prev.phase,
+      to: now.phase,
+      forSec,
+      agents: Object.values(room.agents || {}).filter(a => a.status === 'active').length,
+      agenda: (room.agenda || []).length,
+    };
+    if (room.status === 'closed') {
+      reg.info('room.closed', { ...base, ...closedFields(room) });
+      return;
+    }
+    reg.info('phase.enter', base);
+  }
+
+  // El aviso a las interfaces es el único punto por el que pasan TODOS los cambios de sala
+  // (movimientos, trabajo de fondo, reloj). Se aprovecha para dejar constancia y para saber
+  // desde cuándo la sala está quieta.
+  const rawNotify = hub.notify.bind(hub);
+  hub.notify = code => {
+    try {
+      const room = hall.get(code);
+      if (room) { logRoomProgress(room); touch(code); }
+    } catch { /* el registro no puede impedir un aviso */ }
+    return rawNotify(code);
+  };
+
+  // Qué se encontró este proceso al arrancar, en UNA línea: si el host durmió, reinició o
+  // redesplegó, el estado en disco se fue con él, y esta es la cuenta de lo que sobrevivió.
+  // Las salas abiertas se nombran (son las que continúan); las cerradas solo se cuentan.
+  try {
+    const abiertas = [];
+    let cerradas = 0;
+    for (const meta of hall.list()) {
+      const room = hall.get(meta.code);
+      if (!room) continue;
+      logRoomProgress(room);
+      if (room.status === 'closed') { cerradas += 1; continue; }
+      const agents = Object.values(room.agents || {});
+      abiertas.push({
+        room: room.code,
+        phase: room.phase.name,
+        deadlineInSec: Math.max(0, Math.round((room.phase.deadline - Date.now()) / 1000)),
+        present: agents.filter(a => a.status === 'active').length,
+        workItems: (room.work?.items || []).length,
+      });
+    }
+    reg.info('server.rooms', {
+      total: abiertas.length + cerradas,
+      open: abiertas.length,
+      closed: cerradas,
+      openRooms: abiertas.slice(0, 8),
+      moreOpen: Math.max(0, abiertas.length - 8),
+    });
+  } catch { /* un listado ilegible no debe impedir arrancar */ }
 
   // El trabajo de fondo (clonar, verificar, commitear) tiene que persistir y
   // avisar al panel igual que un movimiento: un único gancho para todo.
@@ -156,7 +261,46 @@ export function createAgora({ dataDir, appDistDir, clockMs = 1000 } = {}) {
   }
 
   const server = http.createServer((req, res) => {
+    // Cada petición queda registrada con su duración, su resultado y quién la hizo. Es lo que
+    // permite reconstruir después qué hizo cada harness y qué contestó el servidor.
+    const started = Date.now();
+    const u = safeUrl(req.url);
+    const info = describeRequest(req.method, u);
+    let logged = false;
+    const finish = () => {
+      if (logged) return;
+      logged = true;
+      const ms = Date.now() - started;
+      const status = res.statusCode || 0;
+      const fields = {
+        m: req.method,
+        path: info.path,
+        status,
+        ms,
+        ...(info.room ? { room: info.room } : null),
+        ...(info.agent || req.__logAgent ? { agent: info.agent || req.__logAgent } : null),
+        ...(info.query ? { q: info.query } : null),
+        from: clientOf(req),
+      };
+      if (status >= 500) reg.error('http.req', fields);
+      else if (status >= 400) reg.warn('http.req', fields);
+      else if (info.agentFacing || req.method !== 'GET' || ms >= 3000) {
+        reg.info('http.req', ms >= 3000 ? { ...fields, slow: true } : fields);
+      } else reg.debug('http.req', fields);
+    };
+    res.on('finish', finish);
+    res.on('close', finish);
     route(req, res).catch(err => {
+      try {
+        reg.error('http.err', {
+          m: req.method,
+          path: info.path,
+          ...(info.room ? { room: info.room } : null),
+          ...(info.agent ? { agent: info.agent } : null),
+          error: err?.code || 'internal',
+          message: err?.message || String(err),
+        });
+      } catch { /* el registro nunca tapa el error */ }
       try { httpError(res, err); } catch { /* socket muerto */ }
     });
   });
@@ -168,6 +312,42 @@ export function createAgora({ dataDir, appDistDir, clockMs = 1000 } = {}) {
     tournaments.tick();
     for (const room of rooms) {
       try { recoverInterruptedWork(room); } catch { /* una sala rota no debe parar el reloj */ }
+    }
+    // Latido de atasco, como mucho una línea por minuto y sala: quién tiene la pelota, cuánto
+    // lleva la fase sin moverse y cuánto queda de plazo. Es la respuesta escrita a «no avanza».
+    for (const room of rooms) {
+      try {
+        if (room.status === 'closed') continue;
+        // Primera vez que se ve esta sala en este proceso: se toma el arranque como referencia.
+        // Si no, toda sala cargada de disco se anunciaría como atascada en el primer latido.
+        if (!lastTouch.has(room.code)) { lastTouch.set(room.code, Date.now()); continue; }
+        const idle = Date.now() - (lastTouch.get(room.code) || 0);
+        if (idle < 60_000) continue;
+        if (Date.now() - (stallLogged.get(room.code) || 0) < 60_000) continue;
+        stallLogged.set(room.code, Date.now());
+        const phaseAt = lastPhase.get(room.code)?.at || Date.now();
+        const agents = Object.values(room.agents || {});
+        const awaiting = agents
+          .filter(a => a.awaiting && a.awaiting.phase === room.phase.name)
+          .map(a => ({
+            name: a.name,
+            action: a.awaiting.action,
+            sec: Math.round((Date.now() - a.awaiting.since) / 1000),
+          }))
+          .slice(0, 6);
+        reg.info('room.stall', {
+          room: room.code,
+          phase: room.phase.name,
+          status: room.status,
+          idleSec: Math.round(idle / 1000),
+          phaseSec: Math.round((Date.now() - phaseAt) / 1000),
+          deadlineInSec: Math.max(0, Math.round((room.phase.deadline - Date.now()) / 1000)),
+          present: agents.filter(a => a.status === 'active').length,
+          absent: agents.filter(a => a.status === 'absent').length,
+          seat: room.settings?.minAgents ?? null,
+          awaiting,
+        });
+      } catch { /* un latido fallido no puede parar el reloj */ }
     }
   });
 
@@ -183,6 +363,24 @@ export function createAgora({ dataDir, appDistDir, clockMs = 1000 } = {}) {
     if (m === 'GET' && p === '/manual') { send(res, 200, manualText(), 'text/markdown; charset=utf-8'); return; }
     if (m === 'GET' && p === '/api/health') {
       sendJSON(res, 200, { ok: true, rooms: hall.list().length, ...hub.stats(), uptimeSec: Math.round(process.uptime()) });
+      return;
+    }
+    // El registro, legible desde fuera: ?level=warn, ?room=CODE, ?ev=room. y ?limit=N.
+    // Solo devuelve lo que ya es público en el panel (códigos, agentes, fases, errores):
+    // los tokens se tachan al escribir, no aquí. Sirve para revisar qué pasó en una sala
+    // sin depender de la consola del host ni de que la instancia siga despierta.
+    if (m === 'GET' && p === '/api/logs') {
+      sendJSON(res, 200, {
+        ok: true,
+        stats: reg.stats(),
+        uptimeSec: Math.round(process.uptime()),
+        events: reg.recent({
+          limit: parseInt(u.searchParams.get('limit') || '200', 10) || 200,
+          level: u.searchParams.get('level'),
+          room: u.searchParams.get('room'),
+          ev: u.searchParams.get('ev'),
+        }),
+      });
       return;
     }
     if (m === 'GET' && p === '/favicon.ico') { send(res, 204, ''); return; }
@@ -361,6 +559,25 @@ export function createAgora({ dataDir, appDistDir, clockMs = 1000 } = {}) {
       else if (!room.settings.planOnly) repoWarning = await attachScaffoldOrWarn(room);
       hall.persist(room);
       hub.notify(room.code);
+      reg.info('room.create', {
+        room: room.code,
+        title: room.title,
+        task: room.task,
+        by: room.createdBy,
+        from: origin ? origin.code : null,
+        settings: {
+          minAgents: room.settings.minAgents,
+          expectedAgents: room.settings.expectedAgents,
+          planOnly: !!room.settings.planOnly,
+          extraordinary: !!room.settings.extraordinary,
+          maxDurationMs: room.settings.maxDurationMs,
+          consensusThreshold: room.settings.consensusThreshold,
+        },
+        agenda: room.agenda.map(p => p.label),
+        repo: repoSummary(room)?.source || (room.repo?.greenfield ? 'proyecto nuevo' : null),
+        repoWarning,
+        delivery: deliveryOf(room).kind,
+      });
       sendJSON(res, 200, {
         ok: true,
         code: room.code,
@@ -485,6 +702,20 @@ export function createAgora({ dataDir, appDistDir, clockMs = 1000 } = {}) {
       const out = joinRoom(room, b);
       hall.persist(room);
       hub.notify(code);
+      const who = room.agents[out.agentId] || {};
+      reg.info('agent.join', {
+        room: code,
+        agent: out.agentId,
+        name: who.name || b.name || null,
+        harness: who.harness || b.harness || null,
+        model: who.model || b.model || null,
+        role: who.role || b.role || null,
+        circle: Object.values(room.agents).filter(a => a.status === 'active').length,
+        seat: room.settings?.minAgents ?? null,
+        expected: room.settings?.expectedAgents ?? null,
+        phase: room.phase.name,
+        from: clientOf(req),
+      });
       const turn = currentTurn(room, out.agentId);
       sendJSON(res, 200, {
         ok: true,
@@ -511,8 +742,22 @@ export function createAgora({ dataDir, appDistDir, clockMs = 1000 } = {}) {
     if (m === 'GET' && sub === '/turn') {
       const waitSec = Math.min(MAX_WAIT_SEC, Math.max(0, parseInt(u.searchParams.get('wait') || '0', 10) || 0));
       const since = Math.max(0, parseInt(u.searchParams.get('since') || '0', 10) || 0);
+      const pollStarted = Date.now();
       const turn = await hub.waitForTurn(code, agentId, waitSec, since);
       if (!turn) { sendJSON(res, 404, { ok: false, error: 'not_found', message: 'Sala no encontrada' }); return; }
+      const waitedMs = Date.now() - pollStarted;
+      const turnAgent = room.agents[agentId] || {};
+      if (turn.action === 'wait' || turn.action === 'done') {
+        reg.debug('agent.turn_wait', {
+          room: code, agent: agentId, name: turnAgent.name || null,
+          askedSec: waitSec, waitedMs, phase: room.phase.name, action: turn.action,
+        });
+      } else {
+        reg.info('agent.turn', {
+          room: code, agent: agentId, name: turnAgent.name || null,
+          action: turn.action, phase: room.phase.name, askedSec: waitSec, waitedMs,
+        });
+      }
       if (room.__changed) hall.persist(room);
       sendJSON(res, 200, { ok: true, turn });
       return;
@@ -542,11 +787,29 @@ export function createAgora({ dataDir, appDistDir, clockMs = 1000 } = {}) {
       const tk = b.token || tok;
       if (!aid || !tk) throw new DebateError('unauthorized', 'Faltan agentId/token');
       authAgent(room, aid, tk);
+      const moveStarted = Date.now();
+      const phaseBefore = room.phase.name;
+      req.__logAgent = aid;
       const out = applyMove(room, aid, {
         kind: b.kind, payload: b.payload, idempotencyKey: b.idempotencyKey || req.headers['idempotency-key'],
       });
       hall.persist(room);
       hub.notify(code);
+      const moveAgent = room.agents[aid] || {};
+      reg.info('agent.move', {
+        room: code,
+        agent: aid,
+        name: moveAgent.name || null,
+        kind: b.kind || null,
+        // La fase en la que se pidió el movimiento y en la que quedó la sala: sin las dos, un
+        // «pass» que cerró el encuadre parecería un movimiento hecho en la fase siguiente.
+        phase: phaseBefore,
+        nowPhase: room.phase.name,
+        ms: Date.now() - moveStarted,
+        replayed: !!out.replayed,
+        warnings: (out.warnings || []).length,
+        ...(b.kind === 'work-patch' || b.kind === 'work-review' ? { item: b.payload?.id || b.payload?.itemId || null } : null),
+      });
       const turn = currentTurn(room, aid);
       sendJSON(res, 200, { ok: true, warnings: out.warnings || [], replayed: !!out.replayed, turn });
       return;
@@ -555,6 +818,8 @@ export function createAgora({ dataDir, appDistDir, clockMs = 1000 } = {}) {
     if (m === 'POST' && sub === '/admin') {
       const b = await readJSON(req);
       if (b.adminToken !== room.adminToken) throw new DebateError('unauthorized', 'adminToken inválido');
+      // El humano también mueve la sala: sus órdenes se registran como cualquier movimiento.
+      reg.info('room.admin', { room: code, op: b.op || null, phase: room.phase.name, from: clientOf(req) });
       if (b.op === 'advance' && room.status === 'debate') {
         // Orden del humano: avanza ya, sin prórrogas por actividad de los agentes.
         room.phase.deadline = Date.now() - 1;
@@ -636,7 +901,13 @@ export function createAgora({ dataDir, appDistDir, clockMs = 1000 } = {}) {
       return;
     }
 
-    if (m === 'GET' && sub === '/stream') { hub.subscribe(code, res, req); return; }
+    if (m === 'GET' && sub === '/stream') {
+      const openedAt = Date.now();
+      reg.debug('panel.stream_open', { room: code, from: clientOf(req), subscribers: hub.stats().subscribers + 1 });
+      req.on('close', () => reg.debug('panel.stream_close', { room: code, from: clientOf(req), openSec: Math.round((Date.now() - openedAt) / 1000) }));
+      hub.subscribe(code, res, req);
+      return;
+    }
 
     sendJSON(res, 404, { ok: false, error: 'not_found', message: 'Subruta desconocida' });
   }
@@ -663,6 +934,50 @@ function sendJSON(res, status, obj) { send(res, status, JSON.stringify(obj)); }
 // El origen con el que el cliente está hablando (http://127.0.0.1:8919). Sirve para que la
 // política de la vista previa incluya explícitamente el origen del servidor: el iframe va con
 // origen opaco y `'self'` no le casa. Un `Host` raro no se usa: mejor sin origen que con basura.
+// ------------------------------------------------------------- lectura de la petición
+// Qué se apunta de cada petición sin filtrar secretos: la ruta sin query, la sala, el agente
+// y unos pocos parámetros con significado (espera, desde, búsqueda). El token y el adminToken
+// jamás se copian, ni siquiera recortados.
+const SAFE_QUERY = new Set(['wait', 'since', 'lines', 'from', 'regex', 'q', 'harness', 'role']);
+
+function safeUrl(raw) {
+  try { return new URL(String(raw || '/'), 'http://local'); }
+  catch { return new URL('/', 'http://local'); }
+}
+
+function describeRequest(method, u) {
+  const pathname = u.pathname.replace(/\/+$/, '') || '/';
+  const room = /^\/api\/rooms\/([a-z0-9]{4,12})/i.exec(pathname)?.[1]?.toLowerCase()
+    || /^\/r\/([a-z0-9]{4,12})/i.exec(pathname)?.[1]?.toLowerCase()
+    || null;
+  const sub = /^\/api\/rooms\/[a-z0-9]{4,12}(\/[a-z.]+)/i.exec(pathname)?.[1]?.toLowerCase() || '';
+  const agent = u.searchParams.get('agent') || null;
+  const query = {};
+  for (const [k, v] of u.searchParams) {
+    if (!SAFE_QUERY.has(k)) continue;
+    query[k] = v.length > 60 ? `${v.slice(0, 60)}…` : v;
+  }
+  // Cara al agente: lo que un harness hace y el humano necesita leer en el registro.
+  const agentFacing = pathname.startsWith('/r/')
+    || ['/join', '/turn', '/move', '/heartbeat', '/state', '/result', '/bootstrap', '/repo', '/work.diff'].includes(sub);
+  return {
+    path: pathname,
+    room,
+    agent,
+    query: Object.keys(query).length ? query : null,
+    agentFacing,
+    method,
+  };
+}
+
+// De dónde viene la petición: un harness local, un navegador o un tercero. Sin esto, «no
+// avanzó» no distingue entre «el agente no llegó» y «llegó desde otro sitio».
+function clientOf(req) {
+  const ip = (String(req.headers['x-forwarded-for'] || '').split(',')[0].trim())
+    || req.socket?.remoteAddress || '';
+  return ip.replace(/^::ffff:/, '') || 'desconocido';
+}
+
 function originOf(req) {
   const host = String(req.headers.host || '');
   if (!/^[A-Za-z0-9.:\[\]-]+$/.test(host)) return null;

@@ -448,8 +448,10 @@ scripts/demo-work.mjs    demo viva: cinco harnesses auditan e implementan sobre 
 ## 8. Pruebas
 
 ```bash
-npm test            # motor + trabajo + e2e (81 en total)
-npm run test:engine # 50 pruebas del motor (agenda, indulgencia, fases, ausencias, encuadre
+npm test            # registro + motor + trabajo + e2e (173 en total)
+npm run test:log    # 8 pruebas del registro (niveles, anillo en memoria, recorte de
+                    #  secretos, archivo opcional y huella de arranque del host)
+npm run test:engine # 56 pruebas del motor (agenda, indulgencia, fases, ausencias, encuadre
                     #  a ciegas, consenso por etapa, disenso protegido, bases de síntesis,
                     #  puntos que la síntesis deja abiertos, cierre)
 npm run test:work    # 26 pruebas de trabajo conjunto sobre un repo git de verdad
@@ -498,3 +500,41 @@ posterior devuelve a la cola lo que aún se pueda mejorar, hasta `repo.reviewRou
 
 Arranque: al alcanzar `expectedAgents`, tras `joinQuietMs` de silencio con los mínimos
 reunidos, o cuando alguien emite `{"kind":"start"}`.
+
+Registro: `AGORA_LOG_LEVEL` (`info` por defecto; `debug` apunta también cada sondeo del
+panel), `AGORA_LOG_MEMORY` (400 eventos en memoria) y `AGORA_LOG_FILE` (opcional).
+
+---
+
+## 11. Registro: qué pasó, aunque el host se duerma
+
+El servidor escribe **una línea JSON por evento** en su salida estándar. Eso es lo que lo
+hace durable: en un servicio gestionado (Render y compañía) el disco local se borra al
+dormirse, reiniciar o redesplegar, pero la salida estándar la captura el host y la conserva.
+Un archivo propio sería justo lo primero que desaparece.
+
+```bash
+# lo que acaba de pasar, desde la propia app (o desde fuera: ?level=warn, ?room=CODE, ?ev=…)
+curl -s "$BASE/api/logs?room=xxxxxx&limit=50"
+curl -s "$BASE/api/logs?level=warn"          # solo lo que salió mal
+```
+
+Se apunta, sin tener que activar nada:
+
+- **Arranque**: puerto, carpeta de datos, cuántas salas sobrevivieron en disco, cuáles siguen
+  abiertas y en qué fase — y en Render, la instancia y el commit. Es la línea que dice si el
+  host tiró el estado.
+- **Sala**: creación (tarea, reglas, agenda, repo, tipo de entrega), entradas de agentes (con
+  harness y modelo), cada movimiento (fase, duración, avisos), el turno que se entregó a cada
+  agente, los cambios de fase y el cierre con resultado, consenso, tareas integradas y checksum.
+- **Atascos**: si una sala lleva un minuto sin actividad, se escribe quién tiene la pelota y
+  desde cuándo, cuántos están presentes y ausentes y cuánto queda de plazo.
+- **Peticiones**: cada una con método, ruta, sala, agente, resultado, duración y origen
+  (¿un harness local o un navegador?).
+- **Errores**: los rechazos del motor con su motivo, y las excepciones que ya no tumban el
+  proceso en silencio.
+
+Los tokens nunca se escriben: se tachan al registrar, también dentro de una URL. El registro
+sí lleva códigos de sala, nombres de agentes y direcciones de origen (lo mismo que ya muestra
+el panel). Con `AGORA_LOG_FILE=./polymind.log` se guarda además en un archivo, cómodo para
+trabajar en local (`tail -f`).

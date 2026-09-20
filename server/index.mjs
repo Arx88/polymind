@@ -9,6 +9,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createAgora, lanAddress } from './transports/http.mjs';
+import { log, bridgeConsole, runtimeInfo } from './log.mjs';
+
+// Todo lo que ya avisaba por consola entra también en el registro estructurado.
+bridgeConsole(log);
+
+// Un servidor que muere en silencio deja la sala sin avanzar y sin explicación. Aquí se
+// registra el motivo antes de caer (y el host lo guarda, aunque el proceso desaparezca).
+process.on('uncaughtException', err => {
+  log.error('process.uncaught', { message: err?.message, code: err?.code, stack: String(err?.stack || '').split('\n')[1]?.trim() });
+  process.exitCode = 1;
+});
+process.on('unhandledRejection', reason => {
+  const err = reason instanceof Error ? reason : null;
+  log.error('process.unhandled', { message: err ? err.message : String(reason), code: err?.code });
+});
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -64,6 +79,15 @@ function acquireDataLock(dir, port) {
   return claim({});
 }
 
+// Cuántas salas hay en el directorio de datos AHORA. Al arrancar, esta cifra es la que dice si
+// el proceso hereda el trabajo anterior o si el host lo borró (Render: «cualquier cambio en el
+// sistema de archivos se pierde cuando el servicio se duerme, reinicia o redespliega»).
+export function roomsOnDisk(dir = DATA_DIR) {
+  try {
+    return fs.readdirSync(dir).filter(f => /^[a-z0-9]{4,12}\.json$/i.test(f)).length;
+  } catch { return 0; }
+}
+
 export function start(port = parseInt(process.env.PORT || '8787', 10), opts = {}) {
   const releaseDataLock = acquireDataLock(DATA_DIR, port);
   const agora = createAgora({ dataDir: DATA_DIR, ...opts });
@@ -89,6 +113,19 @@ export function start(port = parseInt(process.env.PORT || '8787', 10), opts = {}
         console.log(`   2) HTTP     pega ${base}/r/CODE en el agente (devuelve su bootstrap)`);
         console.log(`   3) Runner   node server/runner/index.mjs --room CODE --roster roster.json --url ${base}`);
         console.log('');
+        // La huella del arranque: si el host durmió, reinició o redesplegó, aquí queda dicho
+        // —con instancia y commit— junto a cuántas salas sobrevivieron en disco. Es la línea
+        // que permite leer el registro después y saber qué se perdió y cuándo.
+        log.info('server.boot', {
+          ...runtimeInfo(),
+          port: p,
+          dataDir: DATA_DIR,
+          localUrl: base,
+          lanUrl: lan ? `http://${lan}:${p}` : null,
+          roomsOnDisk: roomsOnDisk(DATA_DIR),
+          roomsInMemory: agora.hall.list().length,
+          waitSecMax: Number(process.env.AGORA_MAX_WAIT_SEC || 120),
+        });
         resolve({
           port: p,
           server: agora.server,
@@ -97,7 +134,11 @@ export function start(port = parseInt(process.env.PORT || '8787', 10), opts = {}
           tournaments: agora.tournaments,
           // Soltar el candado forma parte de parar: si no, la siguiente instancia se encontraría
           // el directorio ocupado por un proceso que ya no existe.
-          stop: () => { releaseDataLock(); return agora.stop(); },
+          stop: () => {
+            log.info('server.stop', { port: p, uptimeSec: Math.round(process.uptime()), rooms: agora.hall.list().length });
+            releaseDataLock();
+            return agora.stop();
+          },
         });
       });
     };
@@ -107,6 +148,7 @@ export function start(port = parseInt(process.env.PORT || '8787', 10), opts = {}
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   start().catch(err => {
+    log.error('server.boot_failed', { message: err?.message, code: err?.code, dataDir: DATA_DIR });
     console.error('No se pudo arrancar AGORA:', err.message);
     process.exit(1);
   });

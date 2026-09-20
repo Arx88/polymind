@@ -70,6 +70,43 @@ test('heartbeat keeps transport presence without model turns or fake progress', 
   assert.equal(bad.status, 401);
 });
 
+// El registro es la memoria del servidor. Sin él, «la sala no avanzó» solo se puede contar de
+// memoria; con él, se lee quién entró, quién pidió turno y qué contestó el servidor.
+test('el registro cuenta el alta, la entrada y las peticiones — y no publica tokens', async () => {
+  const room = await createRoom({ settings: { ...SHORT, planOnly: true, minAgents: 2, expectedAgents: 2 } });
+  const joined = (await post(`${base}/api/rooms/${room.code}/join`, { name: 'Bitácora', harness: 'log-test', model: 'modelo-x' })).body;
+  await j(`${base}/api/rooms/${room.code}/turn?agent=${joined.agentId}&token=${joined.token}&wait=1`);
+
+  const logs = await j(`${base}/api/logs?room=${room.code}&limit=60`);
+  assert.equal(logs.body.ok, true);
+  const evs = logs.body.events.map(e => e.ev);
+  assert.ok(evs.includes('room.create'), 'el alta debe quedar registrada: ' + evs.join(','));
+  assert.ok(evs.includes('agent.join'), 'la entrada de un agente debe quedar registrada');
+  assert.ok(evs.includes('http.req'), 'cada petición debe quedar registrada');
+  assert.ok(logs.body.events.some(e => e.ev === 'http.req' && e.agent === joined.agentId && typeof e.ms === 'number'),
+    'la petición del agente debe llevar su identificador y su duración');
+
+  const joinEv = logs.body.events.find(e => e.ev === 'agent.join');
+  assert.equal(joinEv.harness, 'log-test', 'el registro tiene que decir con qué harness entró');
+  assert.equal(joinEv.name, 'Bitácora');
+
+  const raw = JSON.stringify(logs.body);
+  assert.equal(raw.includes(joined.token), false, 'el token del agente no puede salir en el registro');
+  assert.equal(raw.includes(room.adminToken), false, 'el token de administración tampoco');
+});
+
+// Cuando la sala se perdió (el host durmió, se redesplegó o alguien la cerró), el harness sigue
+// llamando a una puerta que ya no existe. Eso tiene que verse en el registro, con su 404.
+test('una sala que ya no existe deja rastro en el registro', async () => {
+  const gone = await j(`${base}/api/rooms/zzzzzz/public`);
+  assert.equal(gone.status, 404);
+  const logs = await j(`${base}/api/logs?level=warn&limit=40`);
+  const hit = logs.body.events.find(e => e.path === '/api/rooms/zzzzzz/public');
+  assert.ok(hit, 'la petición a una sala inexistente debe aparecer en el registro');
+  assert.equal(hit.status, 404);
+  assert.equal(hit.level, 'warn');
+});
+
 // Decide un movimiento a partir del turno real (equivalente a lo que haría un agente).
 function decide(turn, behavior, name) {
   const seed = hash(name);
