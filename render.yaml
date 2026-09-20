@@ -1,30 +1,33 @@
-# Despliegue en Render: un servicio web Node con disco persistente.
+# Despliegue en Render (plan gratuito): servicio web Node, sin disco.
 #
-# El motor guarda en `AGORA_DATA` el estado de las salas, los clones de trabajo y los
-# commits que produce el debate. Sin disco, cada reinicio se lleva por delante las salas
-# abiertas: la capa gratuita no admite discos, así que para probar sin gastar deja
-# `plan: free` y borra el bloque `disk:` — arranca igual, pero pierde el trabajo al
-# reiniciar (y la instancia se duerme tras 15 min sin visitas).
+# El motor escribe en `data/` las salas, los workspaces y los repositorios de trabajo. En el plan
+# gratuito ese directorio vive en el sistema de ficheros efímero de la instancia: vale para ver el
+# panel y hacer un debate corto, pero cada reinicio —y cada vez que la instancia se duerme por 15
+# minutos sin visitas— se lleva por delante lo que estuviera en curso.
+#
+# Para trabajo de verdad, cambia a instancia de pago y añade el disco:
+#
+#   plan: starter
+#   envVars:
+#     - key: AGORA_DATA
+#       value: /var/agora-data
+#   disk:
+#     name: agora-data
+#     mountPath: /var/agora-data
+#     sizeGB: 2
 services:
   - type: web
     name: agora
     runtime: node
     region: frankfurt
-    plan: starter
+    plan: free
     buildCommand: npm ci && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
       - key: NODE_VERSION
         value: "22"
-      # Todo lo que el motor escribe (salas, workspaces, repositorios) vive aquí.
-      - key: AGORA_DATA
-        value: /var/agora-data
-      # El proxy de Render puede cerrar una petición antes que el long-poll de 120 s del motor:
-      # con 30 s el turno vuelve siempre por su propio pie y el manual dice lo mismo que cumple.
+      # El proxy puede cerrar una petición antes que el long-poll de 120 s: con 30 s el turno
+      # vuelve siempre por su propio pie y el manual dice lo mismo que el servidor cumple.
       - key: AGORA_MAX_WAIT_SEC
         value: "30"
-    disk:
-      name: agora-data
-      mountPath: /var/agora-data
-      sizeGB: 2
