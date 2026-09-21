@@ -5,7 +5,7 @@ export type IconName =
   | 'sparkle' | 'layers' | 'rocket' | 'code' | 'coins' | 'scale' | 'back'
   | 'copy' | 'info' | 'shield' | 'bolt' | 'target' | 'bulb' | 'flag' | 'play'
   | 'download' | 'link' | 'refresh' | 'stop' | 'clock' | 'robot' | 'branch' | 'undo'
-  | 'search';
+  | 'search' | 'trash';
 
 const PATHS: Record<IconName, string> = {
   plus: 'M12 5v14M5 12h14',
@@ -40,6 +40,7 @@ const PATHS: Record<IconName, string> = {
   branch: 'M6 3v12m0 0a3 3 0 1 0 0 6 3 3 0 0 0 0-6Zm12-9a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm0 0v3a3 3 0 0 1-3 3H9',
   undo: 'M9 14 4 9l5-5M4 9h11a5 5 0 0 1 0 10h-4',
   search: 'm21 21-4.35-4.35M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z',
+  trash: 'M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13M10 11v6M14 11v6',
 };
 
 export function Icon({ name, size = 18, className, strokeWidth = 1.8 }: {

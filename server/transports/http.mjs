@@ -14,10 +14,11 @@ import {
   attachRepo, attachScaffold, baselineInBackground, repoIndex, readRepoFile, searchRepo, workDiff,
   repoSummary, setWorkNotifier, recordServed, recordCost, DEFAULT_SETTINGS,
   recoverInterruptedWork, pushBranch, revertItem, reapplyItem, refreshFrozenResult,
-  healFrozenResults, setResultRefresher, setVerifyCommand,
+  healFrozenResults, setResultRefresher, setVerifyCommand, workspaceDirFor, nameOf,
   roomConfig, roomInputFromConfig, templateFromConfig, deliveryOf,
   previewEntry, previewFile, previewHeaders,
 } from '../engine/index.mjs';
+import { hasRecentSignal } from '../engine/recovery.mjs';
 import { LiveHub, startClock } from './live.mjs';
 import { manualText, bootstrapText, snippetsFor, joinPrompt, MAX_WAIT_SEC } from '../snippets.mjs';
 import { listTemplates, getTemplate, roomInputFromTemplate, saveTemplate } from '../templates.mjs';
@@ -846,6 +847,41 @@ export function createAgora({ dataDir, appDistDir, clockMs = 1000, memory = unde
         const live = Object.values(room.artifacts.proposals).filter(p => !p.conceded);
         if (live.length) finishRoom(room, live[0].id);
         else closeRoom(room, 'expired', 'Cerrada por el administrador.');
+      } else if (b.op === 'delete') {
+        // Borrar un trabajo es definitivo: se lleva la sala, su registro, su repo de trabajo y su
+        // copia en la memoria durable. Por eso no basta un clic: se pide el código de la sala como
+        // confirmación, y se respeta a quien está dentro (un agente con señal reciente).
+        if (String(b.confirm || '').toLowerCase() !== code) {
+          throw new DebateError('bad_payload', `Para borrar definitivamente escribe el código de la sala (${code}).`);
+        }
+        const inside = (room.order || []).filter(id => hasRecentSignal(room, id));
+        if (inside.length && !b.force) {
+          const names = inside.map(id => nameOf(room, id)).join(', ');
+          throw new DebateError('busy', `Hay agentes con señal reciente en la sala (${names}). Ciérrala y espera a que se retiren, o repite con force si sabes que ya no trabajan.`);
+        }
+        // Se borra la carpeta ENTERA de la sala (`workspaces/<code>`), no solo el repo: es lo que
+        // se acumula en disco y lo que dejaría una carpeta huérfana por cada trabajo borrado.
+        const wsDir = path.dirname(workspaceDirFor(dataDir, code));
+        let workspaceGone = false;
+        try {
+          workspaceGone = fs.existsSync(wsDir);
+          fs.rmSync(wsDir, { recursive: true, force: true });
+        } catch (err) {
+          // El trabajo borrado no se queda a medias: si el repo no se puede quitar, la sala
+          // tampoco se borra, y se dice por qué.
+          throw new DebateError('bad_op', `No se pudo borrar el repo de trabajo de la sala (${err?.code || 'rm_failed'}). Cierra los procesos que lo estén usando e inténtalo de nuevo.`);
+        }
+        hall.remove(code);
+        // Y que la memoria no la resucite: fuera su copia publicada y sus ramas de trabajo.
+        const forgot = await mem.forget(code);
+        reg.info('room.delete', {
+          room: code, title: room.title || null, status: room.status,
+          agents: Object.keys(room.agents || {}).length, forced: !!b.force,
+          workspace: workspaceGone, memory: !!mem.enabled, memoryOk: forgot?.ok !== false, from: clientOf(req),
+        });
+        hub.drop(code);
+        sendJSON(res, 200, { ok: true, deleted: { code, workspace: workspaceGone, memory: !!mem.enabled, memoryOk: forgot?.ok !== false } });
+        return;
       } else if (b.op === 'add-agenda') {
         const res = addPoint(room, { label: b.label, options: b.options }, null);
         if (!res.point) throw new DebateError('bad_payload', 'label requerido (≤70)');
@@ -911,7 +947,7 @@ export function createAgora({ dataDir, appDistDir, clockMs = 1000, memory = unde
         if (!room.repo.verify) throw new DebateError('bad_payload', 'La sala no tiene comando de verificación declarado.');
         runBaselineNow(room);
       } else {
-        throw new DebateError('bad_op', 'op: advance|close|add-agenda|open-vacancy|set-repo|set-verify|run-baseline|push|revert|reapply');
+        throw new DebateError('bad_op', 'op: advance|close|delete|add-agenda|open-vacancy|set-repo|set-verify|run-baseline|push|revert|reapply');
       }
       hall.persist(room);
       hub.notify(code);

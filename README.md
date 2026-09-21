@@ -215,6 +215,11 @@ Interfaz React + TypeScript (Vite) en `app/`, servida por el propio servidor.
 
 - **Vista usuario** (`#/`): portada con la idea, crear debate desde plantilla o desde
   cero, debates recientes con consenso real, y la sala en vivo.
+- **Borrar un trabajo**: desde la **Zona peligrosa** de la sala (`#/d/CODIGO`) o con la papelera de
+  *Tus trabajos*. Es definitivo — se lleva la sala, su registro, su repositorio de trabajo y su
+  copia en la memoria durable — así que pide escribir el código de la sala para confirmar, y no
+  borra con agentes dentro sin un segundo «de todas formas». La acción queda en el registro
+  (`room.delete`): borrar tampoco es un misterio.
 - **Sala** (`#/d/CODIGO`): en **cinco pestañas** (En vivo · Debate · Disenso · Trabajo ·
   Registro) en lugar de una columna infinita: cada pestaña lleva su contador (puntos sin
   cerrar, puntos disputados, tareas, eventos) y la sala se refresca sola por SSE, sin
@@ -573,10 +578,15 @@ Cómo funciona, sin sorpresas:
   `memory.hydrate { roomsOnDisk, roomsAdopted, workspaces, remoteReached }`.
 - **Si no hay red**, el espejo manda y el push se reintenta con espera creciente: el trabajo no se
   pierde por un fallo de conexión.
+- **Al borrar un trabajo, se olvida de verdad**: `forget(code)` quita su `rooms/<code>.json`, su
+  fila de `meta.json` y sus ramas `ws/<code>` y `wip/<code>`, aquí y en el remoto. Sin esto, el
+  arranque siguiente lo resucitaría: la hidratación repone todo lo que falte en disco. Si la red
+  falla, el olvido queda pendiente y se reintenta como un volcado (se ve en `memory.forgotten` y
+  en el log: `memory.forget`, `memory.forget_deferred`).
 - El repo tiene que ser **privado**: guarda el estado completo de las salas, incluidos los tokens
   de sesión de los agentes. La URL se registra sin credenciales (el token solo viaja en cada
   operación de red).
 - **Opcional de verdad**: sin `AGORA_MEMORY_REPO` ni `AGORA_MEMORY_GIT` esto es una pieza inerte y
   nada cambia. Con `AGORA_MEMORY=0` se apaga aunque haya configuración. `AGORA_MEMORY_GIT` acepta
   cualquier URL o ruta (útil para probar contra un repo local).
-- A la vista: `GET /api/health` incluye `memory: { hydrated, dirty, pendingPush, lastPushAt, lastError }`.
+- A la vista: `GET /api/health` incluye `memory: { hydrated, dirty, forgotten, pendingPush, lastPushAt, lastError }`.

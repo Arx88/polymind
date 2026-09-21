@@ -159,7 +159,7 @@ export class DebateError extends Error {
 export const HTTP_STATUS = {
   unauthorized: 401, unknown_agent: 404, not_found: 404,
   closed_to_join: 409, closed: 409, duplicate: 409, wrong_phase: 409,
-  not_assigned: 409, not_author: 409, too_few: 409, no_vacancy: 409, not_diverse: 409,
+  not_assigned: 409, not_author: 409, too_few: 409, no_vacancy: 409, not_diverse: 409, busy: 409,
   bad_json: 400, bad_task: 400, bad_payload: 400, bad_op: 400, bad_move: 400,
   too_large: 413, unchanged: 304,
 };

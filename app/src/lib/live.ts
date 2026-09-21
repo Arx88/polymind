@@ -1,7 +1,7 @@
 // Suscripción en vivo: SSE con respaldo de sondeo. La sala se refresca sola.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api } from './api';
+import { api, ApiError } from './api';
 import type { HallRoom, Room } from './types';
 
 export function useRoomLive(code: string | null) {
@@ -12,9 +12,12 @@ export function useRoomLive(code: string | null) {
   const esRef = useRef<EventSource | null>(null);
   const lastEventRef = useRef(0);
   const closedRef = useRef(false);
+  // La sala dejó de existir (la borró alguien): insistir con el sondeo no la va a traer de
+  // vuelta, solo llena la consola de 404. Se dice una vez y se para.
+  const goneRef = useRef(false);
 
   const load = useCallback(async () => {
-    if (!code) return;
+    if (!code || goneRef.current) return;
     try {
       const out = await api.room(code);
       setRoom(out.room);
@@ -22,6 +25,15 @@ export function useRoomLive(code: string | null) {
       setUpdatedAt(Date.now());
       lastEventRef.current = Date.now();
     } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        goneRef.current = true;
+        esRef.current?.close();
+        esRef.current = null;
+        setRoom(null);
+        setConnected(false);
+        setError('Esta sala ya no existe: se ha borrado.');
+        return;
+      }
       setError(err instanceof Error ? err.message : 'Error al cargar la sala');
     }
   }, [code]);
@@ -31,14 +43,18 @@ export function useRoomLive(code: string | null) {
   useEffect(() => { closedRef.current = !room || room.status === 'closed'; }, [room]);
 
   useEffect(() => {
+    goneRef.current = false;
     if (!code) { setRoom(null); return; }
     let cancelled = false;
     let poll: number | undefined;
     load();
 
     const startPolling = () => {
-      if (poll !== undefined || cancelled) return;
-      poll = window.setInterval(load, 3000);
+      if (poll !== undefined || cancelled || goneRef.current) return;
+      poll = window.setInterval(() => {
+        if (goneRef.current) { window.clearInterval(poll); poll = undefined; return; }
+        load();
+      }, 3000);
     };
 
     try {
@@ -62,7 +78,7 @@ export function useRoomLive(code: string | null) {
     // Si el flujo lleva un rato sin dar señales, se refresca por HTTP, y si se acumulan dos
     // avisos seguidos, se pasa a sondeo y se suelta el SSE (que ya no sirve de nada).
     const watchdog = window.setInterval(() => {
-      if (cancelled) return;
+      if (cancelled || goneRef.current) return;
       const quietFor = Date.now() - (lastEventRef.current || 0);
       if (closedRef.current || quietFor < 8000) return;
       load();

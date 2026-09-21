@@ -3,6 +3,7 @@ import type { HallRoom } from '../lib/types';
 import { PHASE_LABEL, timeAgo } from '../lib/format';
 import { Icon } from '../components/Icons';
 import { Empty, ErrorBox, Loading } from '../components/Ui';
+import { DeleteWorkButton } from '../components/DeleteWork';
 
 type Filter = 'all' | 'active' | 'waiting' | 'closed';
 export function Workspace({ rooms, loading, error, onRefresh }: { rooms: HallRoom[]; loading: boolean; error: string | null; onRefresh: () => void }) {
@@ -29,7 +30,7 @@ export function Workspace({ rooms, loading, error, onRefresh }: { rooms: HallRoo
         <div className="workTileTop"><span className={`metricIcon ${room.repo ? 'violet' : ''}`}><Icon name={room.repo ? 'code' : 'chat'} size={21}/></span><span className={`workState ${room.status}`}>{room.status === 'lobby' ? 'Esperando agentes' : room.status === 'debate' ? (PHASE_LABEL[room.phase] || room.phase) : room.outcome === 'decided' ? 'Decisión disponible' : 'Cerrado sin decisión'}</span></div>
         <h3>{room.title}</h3><p>{room.task}</p>
         {room.work && <div className="workProgress"><span>{room.work.integrated} de {room.work.items} mejoras integradas</span><progress value={room.work.integrated} max={Math.max(1,room.work.items)} aria-label="Mejoras integradas"/></div>}
-        <div className="workTileBottom"><span><Icon name="users" size={15}/>{room.agents} agentes</span><span>{timeAgo(room.createdAt)}</span><Icon name="arrow" size={17}/></div>
+        <div className="workTileBottom"><span><Icon name="users" size={15}/>{room.agents} agentes</span><span>{timeAgo(room.createdAt)}</span><DeleteWorkButton code={room.code} onDeleted={onRefresh}/><Icon name="arrow" size={17}/></div>
       </a>)}</div> : <Empty icon="search" title={query || filter !== 'all' ? 'No hay trabajos con este filtro' : 'Tu primer gran resultado empieza aquí'} hint={query || filter !== 'all' ? 'Prueba otro término o selecciona Todos.' : 'Crea un trabajo y conecta tus harnesses para empezar.'}/>}
       {filtered.length > limit && <button className="btnGhost collectionMore" onClick={() => setLimit(n => n+12)}>Mostrar más trabajos ({filtered.length-limit} restantes)</button>}
     </section>

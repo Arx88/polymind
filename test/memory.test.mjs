@@ -172,6 +172,51 @@ test('el código de la sala vuelve con su rama y hasta el parche preparado sin c
   assert.equal(room2.repo.dir, dir2, 'la sala apunta al árbol restaurado');
 });
 
+// ---------------------------------------------------------------- olvido
+// Borrar un trabajo no puede dejar su copia publicada: al siguiente arranque la hidratación la
+// repondría (adoptRooms repone todo lo que falte en disco) y el repo volvería de su rama. El
+// olvido se lleva el JSON, su fila del índice y las dos ramas de trabajo, aquí y en el remoto.
+test('un trabajo borrado no vuelve del remoto: el olvido se lleva sala, índice y ramas', async t => {
+  const remote = bareRemote(t);
+  const dataDir = tmp(t, 'polymind-datos-');
+  const { hall, memory } = withMemory(dataDir, remote);
+  const room = hall.create({ task: 'Una tarea que se va a borrar para siempre' });
+  const dir = workspaceDirFor(dataDir, room.code);
+  fs.mkdirSync(dir, { recursive: true });
+  assert.ok(git(dir, 'init', '-q').ok);
+  git(dir, 'config', 'user.email', 'agora@local');
+  git(dir, 'config', 'user.name', 'agora');
+  git(dir, 'config', 'core.autocrlf', 'false');
+  fs.writeFileSync(path.join(dir, 'nota.txt'), 'trabajo\n');
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '-q', '-m', 'trabajo de la sala');
+  room.repo = { kind: 'scaffold', source: null, dir, branch: 'main', head: git(dir, 'rev-parse', 'HEAD').out, files: 1 };
+  hall.persist(room);
+
+  await memory.flush('prueba');
+  assert.match(git(remote, '--git-dir', remote, 'show-ref').out, new RegExp(`refs/heads/ws/${room.code}`), 'la rama del trabajo se publicó');
+  assert.match(git(remote, '--git-dir', remote, 'ls-tree', '-r', '--name-only', 'main').out, new RegExp(`rooms/${room.code}\\.json`));
+
+  // El humano borra la sala: primero el archivo local (como hace el endpoint) y después el olvido.
+  fs.rmSync(path.join(dataDir, `${room.code}.json`), { force: true });
+  const out = await memory.forget(room.code);
+  assert.equal(out.ok, true, 'el olvido publica sin errores');
+
+  const restos = git(remote, '--git-dir', remote, 'show-ref').out;
+  assert.doesNotMatch(restos, new RegExp(`ws/${room.code}`), 'la rama del trabajo ya no está');
+  assert.doesNotMatch(restos, new RegExp(`wip/${room.code}`));
+  assert.doesNotMatch(git(remote, '--git-dir', remote, 'ls-tree', '-r', '--name-only', 'main').out, new RegExp(`rooms/${room.code}\\.json`), 'la copia de la sala ya no está');
+  const meta = JSON.parse(git(remote, '--git-dir', remote, 'show', 'main:meta.json').out || '{}');
+  assert.equal(meta.rooms?.[room.code], undefined, 'el índice tampoco la lista');
+  assert.equal(memory.status().forgotten, 0, 'no queda ningún olvido pendiente');
+
+  // Un arranque nuevo no la resucita: era el punto de todo esto.
+  fs.rmSync(dataDir, { recursive: true, force: true });
+  const arranque = withMemory(dataDir, remote);
+  await arranque.memory.hydrate();
+  assert.equal(arranque.hall.list().length, 0, 'el trabajo borrado no vuelve');
+});
+
 // ---------------------------------------------------------------- apagada
 test('sin remoto declarado la memoria no toca nada', async t => {
   const dataDir = tmp(t, 'polymind-sin-memoria-');

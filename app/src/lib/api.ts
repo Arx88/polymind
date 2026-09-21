@@ -59,6 +59,9 @@ export const api = {
   move: (code: string, body: Record<string, unknown>) =>
     req<{ ok: true; warnings: string[]; turn: { action: string; message?: string } }>(`/api/rooms/${code}/move`, { method: 'POST', body }),
   admin: (code: string, body: Record<string, unknown>) => req<{ ok: true; room: Room }>(`/api/rooms/${code}/admin`, { method: 'POST', body }),
+  // Borrar un trabajo: definitivo (sala, registro, repo de trabajo y su copia en la memoria).
+  deleteRoom: (code: string, body: Record<string, unknown>) =>
+    req<{ ok: true; deleted: { code: string; workspace: boolean; memory: boolean; memoryOk: boolean } }>(`/api/rooms/${code}/admin`, { method: 'POST', body }),
   snippets: (harness: string, code: string) => req<{ ok: true } & SnippetBundle>(`/api/snippets?harness=${encodeURIComponent(harness)}&room=${encodeURIComponent(code)}`),
   tournaments: () => req<{ ok: true; tournaments: Tournament[] }>('/api/tournaments'),
   createTournament: (body: Record<string, unknown>) =>

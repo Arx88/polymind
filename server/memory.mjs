@@ -13,6 +13,9 @@
 //     remoto. Si la red falla, el espejo conserva el trabajo y se reintenta con espera creciente.
 //   · `hydrate()` al arrancar = traer el remoto, reponer las salas que falten o estén atrasadas
 //     y clonar los workspaces de las salas abiertas desde el espejo, con su rama y su wip.
+//   · `forget(code)` = borrar un trabajo de verdad: si su copia siguiera publicada, volvería al
+//     arrancar. Se lleva el JSON, su fila del índice y las dos ramas de trabajo, aquí y en el
+//     remoto; si la red falla, queda pendiente y se reintenta como cualquier volcado.
 //
 // Nada de esto es obligatorio: sin `AGORA_MEMORY_REPO` ni `AGORA_MEMORY_GIT`, la app funciona
 // exactamente como antes (disco local y ya). Y si el remoto no está, el espejo manda.
@@ -100,6 +103,7 @@ export function createMemory({
 
   const dirty = new Map();      // code -> true (cambios pendientes de copiar al espejo)
   const lastSeen = new Map();   // code -> { progress, status } (lo último que ya está en el espejo)
+  const forgotten = new Map();  // code -> true (olvidos pendientes: el remoto todavía tiene la copia)
   const refreshed = new Set();  // codes cuyo workspace ya se empujó en este ciclo
   let chain = Promise.resolve();
   let timer = null;
@@ -237,24 +241,28 @@ export function createMemory({
     }
   }
 
-  function commitSnapshot(codes, reason) {
-    if (!codes.length) return null;
+  function commitMirror(message) {
     const paths = ['rooms'];
     if (exists(metaFile)) paths.push('meta.json');
     gitRun(['add', '-A', '--', ...paths], { cwd: mirrorDir });
     const staged = gitRun(['diff', '--cached', '--quiet'], { cwd: mirrorDir });
     if (staged.ok) return null; // nada nuevo: el espejo ya tenía esta versión
-    const list = codes.slice(0, 8).join(', ') + (codes.length > 8 ? ` +${codes.length - 8}` : '');
-    const msg = `memoria: ${codes.length} sala${codes.length === 1 ? '' : 's'} (${list})${reason ? ` · ${reason}` : ''}`;
     const res = gitRun([
       '-c', 'user.name=Polymind', '-c', 'user.email=memoria@polymind.local',
-      'commit', '--quiet', '--no-gpg-sign', '-m', msg,
+      'commit', '--quiet', '--no-gpg-sign', '-m', message,
     ], { cwd: mirrorDir });
     if (!res.ok) {
       say('warn', 'memory.commit_failed', { error: res.out.slice(0, 300) });
       return null;
     }
     return gitRun(['rev-parse', '--short', 'HEAD'], { cwd: mirrorDir }).out || null;
+  }
+
+  function commitSnapshot(codes, reason) {
+    if (!codes.length) return null;
+    const list = codes.slice(0, 8).join(', ') + (codes.length > 8 ? ` +${codes.length - 8}` : '');
+    const msg = `memoria: ${codes.length} sala${codes.length === 1 ? '' : 's'} (${list})${reason ? ` · ${reason}` : ''}`;
+    return commitMirror(msg);
   }
 
   // ------------------------------------------------------ workspaces
@@ -329,12 +337,97 @@ export function createMemory({
     return true;
   }
 
+  // ------------------------------------------------------ olvido
+  // Borrar un trabajo tiene que borrar también su memoria. Si la copia siguiera en el espejo o
+  // en el remoto, el siguiente arranque la resucitaría: `adoptRooms` repone en disco todo lo que
+  // falte y el repo de trabajo volvería de su rama. El olvido es: fuera el JSON, fuera su fila
+  // del índice y fuera sus dos ramas de trabajo, aquí y allá. Si la red falla, queda pendiente y
+  // se reintenta como cualquier volcado: un olvido a medias solo se nota al reiniciar.
+  const workRefs = code => [`ws/${code}`, `wip/${code}`];
+
+  function dropRoomFromMeta(code) {
+    const meta = readJSON(metaFile);
+    if (!meta?.rooms || !(code in meta.rooms)) return;
+    delete meta.rooms[code];
+    meta.updatedAt = Date.now();
+    try { writeJSONAtomic(metaFile, meta); } catch (err) {
+      say('warn', 'memory.meta_write_failed', { error: err?.code || err?.message });
+    }
+  }
+
+  // Qué ramas de esta sala existen de verdad en el remoto: borrar una que no está hace fallar
+  // el push entero, y el olvido se quedaría a medias para siempre. `null` = no se pudo preguntar
+  // (sin red): se reintenta, no se decide.
+  function remoteWorkRefs(code) {
+    const res = gitRun(['ls-remote', '--heads', remote, `refs/heads/ws/${code}`, `refs/heads/wip/${code}`], { cwd: mirrorDir, timeoutMs: networkTimeoutMs });
+    if (!res.ok) return null;
+    const found = new Set();
+    for (const line of res.out.split('\n')) {
+      const ref = line.split('\t')[1]?.trim();
+      if (ref?.startsWith('refs/heads/')) found.add(ref.slice('refs/heads/'.length));
+    }
+    return found;
+  }
+
+  async function forgetOnce(code) {
+    if (!enabled) return { ok: true, skipped: true };
+    code = String(code).toLowerCase();
+    const t0 = Date.now();
+    dirty.delete(code);
+    lastSeen.delete(code);
+    forgotten.set(code, true); // pendiente hasta que el remoto lo sepa
+    try { ensureMirror(); } catch (err) {
+      lastError = err?.message || String(err);
+      say('warn', 'memory.forget_deferred', { room: code, error: lastError });
+      schedule(5000);
+      return { ok: false, error: lastError };
+    }
+    // Aquí, ya: el espejo es local y es lo que lee el próximo arranque de este host.
+    fs.rmSync(mirrorRoomFile(code), { force: true });
+    dropRoomFromMeta(code);
+    for (const ref of workRefs(code)) gitRun(['update-ref', '-d', `refs/heads/${ref}`], { cwd: mirrorDir });
+    const commit = commitMirror(`memoria: olvida la sala ${code}`);
+    const alive = remoteWorkRefs(code);
+    if (alive === null) {
+      const wait = Math.min(60_000, 3000 * 2 ** Math.min(failures, 5));
+      failures += 1;
+      lastError = 'sin respuesta del remoto al olvidar';
+      say('warn', 'memory.forget_deferred', { room: code, error: lastError, retryMs: wait });
+      schedule(wait);
+      return { ok: false, error: lastError };
+    }
+    const specs = [
+      ...(commit ? [`refs/heads/${branch}:refs/heads/${branch}`] : []),
+      ...[...alive].map(ref => `:refs/heads/${ref}`),
+    ];
+    const pushed = specs.length
+      ? gitRun(['push', '--quiet', remote, ...specs], { cwd: mirrorDir, timeoutMs: networkTimeoutMs })
+      : { ok: true, out: '', code: 0 };
+    if (!pushed.ok) {
+      pendingPush = true;
+      lastError = pushed.out.slice(0, 300) || `código ${pushed.code}`;
+      const wait = Math.min(60_000, 3000 * 2 ** Math.min(failures, 5));
+      failures += 1;
+      say('warn', 'memory.push_failed', { repo: display, error: lastError, retryMs: wait });
+      schedule(wait);
+      return { ok: false, error: lastError };
+    }
+    if (commit) pendingPush = false;
+    forgotten.delete(code);
+    failures = 0;
+    lastError = null;
+    lastPushAt = Date.now();
+    say('info', 'memory.forget', { repo: display, room: code, refs: alive.size, commit: commit || null, ms: Date.now() - t0 });
+    return { ok: true, room: code, refs: alive.size, commit };
+  }
+
   // ------------------------------------------------------ flush
   async function flushOnce(reason) {
     if (!enabled || closed) return { ok: false, skipped: true };
     const batch = [...dirty.keys()];
     dirty.clear();
-    if (!batch.length && !pendingPush) return { ok: true, changed: 0 };
+    const forgetting = [...forgotten.keys()];
+    if (!batch.length && !pendingPush && !forgetting.length) return { ok: true, changed: 0 };
     const t0 = Date.now();
     try {
       ensureMirror();
@@ -356,7 +449,13 @@ export function createMemory({
     }
     const commit = commitSnapshot(codes, reason);
     const pushed = pushToRemote({ committed: !!commit, ws });
-    const summary = { ok: pushed, changed: codes.length, workspaces: ws.length, commit, ms: Date.now() - t0 };
+    // Olvidos pendientes: se reintentan con el mismo ciclo (y en el mismo push cuando se puede).
+    let forgottenDone = 0;
+    for (const code of [...forgotten.keys()]) {
+      const out = await forgetOnce(code);
+      if (out.ok) forgottenDone += 1;
+    }
+    const summary = { ok: pushed, changed: codes.length, workspaces: ws.length, forgotten: forgottenDone, commit, ms: Date.now() - t0 };
     if (pushed) {
       failures = 0;
       lastError = null;
@@ -525,12 +624,15 @@ export function createMemory({
     touch,
     hydrate: () => enqueue(() => hydrateOnce()),
     flush: (reason = 'manual') => enqueue(() => flushOnce(reason)),
+    // Olvidar un trabajo borrado: sin esto, su copia publicada lo traería de vuelta al arrancar.
+    forget: code => enqueue(() => forgetOnce(code)),
     status: () => ({
       enabled,
       repo: display,
       branch,
       hydrated,
       dirty: dirty.size,
+      forgotten: forgotten.size,
       pendingPush,
       lastPushAt: lastPushAt || null,
       lastError,
@@ -539,7 +641,7 @@ export function createMemory({
       if (closed) return;
       if (timer) clearTimeout(timer);
       timer = null;
-      if (enabled && (dirty.size || pendingPush)) await enqueue(() => flushOnce('parada')).catch(() => null);
+      if (enabled && (dirty.size || forgotten.size || pendingPush)) await enqueue(() => flushOnce('parada')).catch(() => null);
       closed = true;
     },
   };

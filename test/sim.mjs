@@ -1602,3 +1602,36 @@ test('23 · vista previa: sirve el proyecto de la sala y nada más', async () =>
   assert.equal(sinProyecto.body.preview.available, false);
   assert.equal(sinProyecto.body.preview.reason, 'solo-planificacion');
 });
+
+// Borrar un trabajo tiene que borrarlo de verdad: la sala desaparece (404, fuera de la lista y
+// sin archivo en disco) y no basta un clic — se pide el código como confirmación. Y a quien está
+// dentro se le respeta: con un agente con señal reciente el servidor frena, y solo borra si se
+// insiste a propósito.
+test('un trabajo se borra de verdad — y con gente dentro hay que insistir a propósito', async () => {
+  const vacia = await createRoom({ task: 'Un trabajo que ya no sirve para nada.', settings: { ...SHORT, planOnly: true } });
+  const sinConfirmar = await post(`${base}/api/rooms/${vacia.code}/admin`, { adminToken: vacia.adminToken, op: 'delete', confirm: 'otro-codigo' });
+  assert.equal(sinConfirmar.status, 400, 'sin el código exacto no se borra');
+  const malToken = await post(`${base}/api/rooms/${vacia.code}/admin`, { adminToken: 'no-es-el-token', op: 'delete', confirm: vacia.code });
+  assert.equal(malToken.status, 401);
+
+  const borrada = await post(`${base}/api/rooms/${vacia.code}/admin`, { adminToken: vacia.adminToken, op: 'delete', confirm: vacia.code });
+  assert.equal(borrada.status, 200, JSON.stringify(borrada.body));
+  assert.equal(borrada.body.deleted.code, vacia.code);
+  assert.equal((await j(`${base}/api/rooms/${vacia.code}/public`)).status, 404, 'la sala ya no existe');
+  assert.ok(!(await j(`${base}/api/hall`)).body.rooms.some(r => r.code === vacia.code), 'y no aparece en la lista');
+  assert.equal(fs.existsSync(path.join(DATA, `${vacia.code}.json`)), false, 'su archivo tampoco está');
+
+  const viva = await createRoom({ task: 'Un trabajo con gente dentro que se quiere borrar.', settings: { ...SHORT, planOnly: true, minAgents: 1, expectedAgents: 1 } });
+  const agente = (await post(`${base}/api/rooms/${viva.code}/join`, { name: 'Dentro', harness: 'test', model: 'test' })).body;
+  assert.ok(agente.agentId);
+  const ocupada = await post(`${base}/api/rooms/${viva.code}/admin`, { adminToken: viva.adminToken, op: 'delete', confirm: viva.code });
+  assert.equal(ocupada.status, 409, 'no se borra un trabajo con alguien dentro sin querer');
+  assert.match(ocupada.body.message || '', /señal reciente/);
+  const forzada = await post(`${base}/api/rooms/${viva.code}/admin`, { adminToken: viva.adminToken, op: 'delete', confirm: viva.code, force: true });
+  assert.equal(forzada.status, 200, JSON.stringify(forzada.body));
+  assert.equal((await j(`${base}/api/rooms/${viva.code}/public`)).status, 404);
+
+  // Y queda en el registro: un borrado no es un misterio.
+  const logs = await j(`${base}/api/logs?room=${vacia.code}&limit=40`);
+  assert.ok(logs.body.events.some(e => e.ev === 'room.delete'), 'el borrado queda registrado: ' + logs.body.events.map(e => e.ev).join(','));
+});

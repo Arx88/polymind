@@ -23,6 +23,7 @@ import { ResultCard } from '../components/ResultCard';
 import { LongText } from '../components/LongText';
 import { RoomArt, seatsFromRoom } from '../components/RoomArt';
 import { RoomConfigCard } from '../components/RoomConfigCard';
+import { DeleteWorkButton } from '../components/DeleteWork';
 import type { Room as RoomType } from '../lib/types';
 
 type RoomTab = 'live' | 'debate' | 'dissent' | 'work' | 'preview' | 'log' | 'config';
@@ -541,6 +542,21 @@ export function Room({ code, onChanged }: { code: string; onChanged: () => void 
                 )}
               </div>
               <p className="tiny" style={{ marginTop: 10 }}>Acciones de emergencia cuando un agente se queda colgado.</p>
+            </Card>
+          )}
+
+          {/* Zona peligrosa: solo en el navegador que creó la sala (tiene su token), y con el
+              mismo peso para una sala abierta y una cerrada — un trabajo atascado también se
+              borra desde aquí, que es justo cuando más falta hace. */}
+          {adminToken && (
+            <Card title="Zona peligrosa">
+              <div className="row wrap">
+                <DeleteWorkButton code={room.code} full onDeleted={() => { onChanged(); navigate('#/'); }} />
+              </div>
+              <p className="tiny" style={{ marginTop: 10 }}>
+                Borra el trabajo para siempre: la sala, su registro, su repositorio de trabajo y su copia
+                en la memoria durable. Si solo quieres dejarlo de ver, ciérralo.
+              </p>
             </Card>
           )}
         </div>

@@ -44,6 +44,27 @@ function staleCopyOf(room) {
   };
 }
 
+// Borrar un trabajo es una decisión del humano y tiene que ser TOTAL: si el JSON quedara en el
+// directorio, la sala reaparecería en la siguiente lista (y con memoria publicada volvería del
+// remoto). El borrado se lleva el archivo, su temporal, la caché y las marcas de progreso.
+test('borrar una sala la quita de la lista, del disco y de la caché', t => {
+  const dir = tmpDir(t, 'polymind-borrado-');
+  const hall = new Hall(dir);
+  const room = hall.create({ task: 'Un trabajo que se borra del todo' });
+  assert.ok(fs.existsSync(path.join(dir, `${room.code}.json`)));
+  assert.equal(hall.list().length, 1);
+
+  assert.equal(hall.remove(room.code), true);
+  assert.equal(fs.existsSync(path.join(dir, `${room.code}.json`)), false, 'el archivo se va');
+  assert.equal(hall.get(room.code), null, 'la sala ya no existe');
+  assert.equal(hall.list().length, 0, 'y no vuelve a aparecer en la lista');
+
+  // Otro proceso sobre el mismo directorio tampoco la ve: no es un olvido de la caché.
+  const otra = new Hall(dir);
+  assert.equal(otra.get(room.code), null);
+  assert.equal(otra.list().length, 0);
+});
+
 test('a stale copy on disk cannot erase a finished debate', t => {
   const dir = tmpDir(t, 'polymind-clobber-');
   const hall = new Hall(dir);

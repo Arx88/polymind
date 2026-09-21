@@ -44,6 +44,25 @@ export class LiveHub {
     }
   }
 
+  // La sala dejó de existir (la borró el humano): quien esperaba turno se suelta —no hay nada
+  // que esperar— y quien la estaba mirando recibe el aviso, en vez de quedarse con una sala
+  // fantasma en pantalla hasta que refresque a mano.
+  drop(code) {
+    const set = this.waiters.get(code);
+    if (set) {
+      for (const w of [...set]) {
+        clearTimeout(w.timer);
+        try { w.resolve(null); } catch { /* el agente ya no está */ }
+      }
+      this.waiters.delete(code);
+    }
+    for (const c of this.clients) {
+      if (c.code !== code) continue;
+      try { c.res.write(`data: ${JSON.stringify({ type: 'deleted', code })}\n\n`); }
+      catch { this.dropClient(c); }
+    }
+  }
+
   // Persiste si el barrido cambió algo y notifica. Se usa en el reloj global.
   sweepNotify(code) {
     const room = this.hall.get(code);

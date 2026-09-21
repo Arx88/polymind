@@ -334,6 +334,22 @@ export class Hall {
       return false;
     }
   }
+  // Borrar una sala. Es una decisión del humano y tiene que ser TOTAL: si solo se quitara de la
+  // lista, el archivo seguiría en el directorio y la sala reaparecería en la siguiente lectura
+  // (y, con memoria durable, volvería desde su copia publicada). Se lleva el JSON, su temporal,
+  // la caché del proceso y las marcas de progreso.
+  remove(code) {
+    code = String(code || '').toLowerCase();
+    const file = this.fileOf(code);
+    try {
+      fs.rmSync(file, { force: true });
+      fs.rmSync(`${file}.tmp`, { force: true });
+    } catch { return false; }
+    this.cache.delete(code);
+    this.marks.delete(code);
+    return true;
+  }
+
   list() {
     const out = [];
     let files = [];
