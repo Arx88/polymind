@@ -231,7 +231,9 @@ En **work** el debate ya aprobó qué se aplica. El ciclo por tarea:
    (o simplemente pide tu turno con \`/turn\`). Renueva tu reclamo sin gastar un movimiento completo.
    Una tarea solo vuelve al montón si de verdad dejas de dar señales (20 minutos por defecto):
    con latidos, verificar despacio no te cuesta la tarea.
-6. \`{kind:"pass"}\` — dejas el trabajo del repo y pasas a observador.
+6. Esperar **no** es un movimiento: si tu parche espera revisión o no hay tareas libres, vuelve a pedir
+   \`/turn\` (te dirá qué te toca). Y si de verdad te retiras del repo: \`{kind:"pass"}\` — pasas a
+   observador por lo que queda de sala (irreversible; el parche que ya entregaste sigue su curso y no se pierde).
 
 Al cerrar, el resultado incluye rama, commits, diff (+/- por archivo) y el estado de cada tarea.
 

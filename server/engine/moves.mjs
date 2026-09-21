@@ -22,7 +22,7 @@ import {
 import { applyBudget } from './roster.mjs';
 import { startRoom, maybeAdvance, proceedToVerify, proceedToWork, enterPhase } from './phases.mjs';
 import { finishRoom } from './result.mjs';
-import { recordFinding, claimItem, submitPatch, reviewPatch, passWork, holdClaim, applyRecheck } from './work.mjs';
+import { recordFinding, claimItem, submitPatch, reviewPatch, passWork, holdClaim, applyRecheck, reconcileWork } from './work.mjs';
 
 const OBJECTION_TYPES = ['risk', 'cost', 'feasibility', 'ethics', 'missing-info', 'scope'];
 const SEVERITIES = ['high', 'med', 'low'];
@@ -77,6 +77,17 @@ function applyMoveInner(room, agentId, move = {}) {
     maybeAdvance(room);
     return { warnings: [] };
   }
+  // «start» idempotente: la sala puede arrancar sola justo antes de que llegue el «start» del
+  // turno que ya se había entregado (carrera real entre `start-or-wait` y el auto-arranque del
+  // lobby). Rechazarlo cuesta una vuelta de LLM y no cambia nada: la sala ya está donde tenía
+  // que estar, así que se acepta como hecho.
+  if (kind === 'start' && room.status === 'debate') {
+    agent.lastSeenAt = now();
+    maybeAdvance(room);
+    // Sin aviso: no es un error ni una normalización, es un «start» que llegó tarde a un
+    // arranque que ya ocurrió. El aviso viaja como nota informativa, no como advertencia.
+    return { warnings: [], replayed: true, kind, note: 'la sala ya había arrancado antes de tu «start»: no hacía falta' };
+  }
   const allowed = MOVE_KINDS[room.phase.name] || [];
   if (!allowed.includes(kind)) {
     throw new DebateError('wrong_phase',
@@ -95,6 +106,10 @@ function applyMoveInner(room, agentId, move = {}) {
 
   const d = room.phase.data;
   const phase = room.phase.name;
+  // El trabajo tiene un invariante (parche en vuelo ⇔ tarea en revisión). Si algún camino lo
+  // rompió, se repara antes de decidir nada: con el estado roto, el movimiento legítimo
+  // («review-patch») se rechazaba por fase y el árbol quedaba bloqueado sin salida.
+  if (phase === 'work') reconcileWork(room);
   const respond = (extra = {}) => {
     d.responses ||= {};
     d.responses[agentId] = { kind, at: now(), ...extra };

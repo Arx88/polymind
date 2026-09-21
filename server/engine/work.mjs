@@ -759,16 +759,78 @@ export function passWork(room, agentId, payload = {}) {
   const agent = room.agents[agentId];
   const item = claimedItemOf(room, agentId);
   const cuts = [];
+  const pending = room.work?.pending ? room.work.patches[room.work.pending] : null;
   if (item) {
-    // Retirarse con una tarea en curso la devuelve al montón: no se bloquea el trabajo.
-    item.status = 'open';
-    item.claimant = null;
-    item.note = fit(payload.reason, CAPS.workNote, 'reason', cuts, { keepLines: true }) || 'el agente se retiró del trabajo';
-    log(room, agentId, 'work', `${nameOf(room, agentId)} devuelve la tarea ${item.id} al montón (${item.note}).`);
+    // Retirarse con una tarea en curso la devuelve al montón: no se bloquea el trabajo. La
+    // excepción es el parche propio ya entregado: está en manos del servidor (revisión o
+    // verificación) y devolver la tarea al montón lo dejaba bloqueando el árbol con la tarea
+    // abierta — un estado sin salida en el que la revisión se rechazaba por «no está en
+    // revisión» y nadie podía entregar nada. Aquí el parche se conserva íntegro y sigue su
+    // curso; retirarse no lo tira.
+    if (pending && pending.itemId === item.id) {
+      log(room, agentId, 'work',
+        `${nameOf(room, agentId)} deja el trabajo; su parche ${pending.id} de ${item.id} sigue en manos del servidor `
+        + `(${pending.verify?.status === 'running' ? 'verificándose' : 'esperando revisión'}) y se conserva.`);
+    } else {
+      item.status = 'open';
+      item.claimant = null;
+      item.note = fit(payload.reason, CAPS.workNote, 'reason', cuts, { keepLines: true }) || 'el agente se retiró del trabajo';
+      log(room, agentId, 'work', `${nameOf(room, agentId)} devuelve la tarea ${item.id} al montón (${item.note}).`);
+    }
   }
   agent.workOptOut = true;
   log(room, agentId, 'work', `${nameOf(room, agentId)} deja el trabajo del repo y pasa a observador.`);
   return { warnings: cuts };
+}
+
+// ---------------------------------------------------------------- invariantes
+// El trabajo tiene UN invariante: mientras hay un parche en vuelo (`work.pending`), su tarea
+// está «in-review» o «verifying»; y sin parche en vuelo ninguna tarea se queda en esos estados.
+// Cualquier camino que lo rompa deja el árbol bloqueado por un parche que nadie puede revisar
+// («La tarea w1 no está en revisión») y tareas que nadie puede entregar («Hay un parche
+// esperando revisión»), con la sala girando sin salida. En vez de confiar en que ningún camino
+// lo rompa nunca, esto lo repara en el sitio y lo deja escrito.
+const IN_FLIGHT = ['in-review', 'verifying'];
+
+export function reconcileWork(room) {
+  const work = room.work;
+  if (!work || work.finishedAt) return [];
+  const fixes = [];
+  const patch = work.pending ? work.patches[work.pending] : null;
+
+  if (patch && (patch.superseded || patch.committed)) {
+    // Un parche ya resuelto no puede seguir bloqueando el árbol.
+    work.pending = null;
+    fixes.push(`el parche ${patch.id} ya estaba resuelto y deja de bloquear el árbol`);
+  } else if (patch) {
+    const item = work.items[patch.itemId];
+    const want = patch.verify?.status === 'running' ? 'verifying' : 'in-review';
+    if (item && item.status !== want) {
+      item.status = want;
+      item.lastError = null;
+      fixes.push(`la tarea ${item.id} vuelve a «${want}» (el parche ${patch.id} sigue en vuelo)`);
+    }
+    if (item && item.reviewer !== patch.reviewer) {
+      item.reviewer = patch.reviewer;
+      fixes.push(`la tarea ${item.id} reconoce al revisor de ${patch.id}`);
+    }
+  } else {
+    for (const id of work.order) {
+      const item = work.items[id];
+      if (!item || !IN_FLIGHT.includes(item.status)) continue;
+      item.status = 'open';
+      item.claimant = null;
+      item.reviewer = null;
+      item.note = 'La tarea vuelve al montón: no había ningún parche en vuelo.';
+      fixes.push(`la tarea ${item.id} vuelve al montón (no había ningún parche en vuelo)`);
+    }
+  }
+
+  if (fixes.length) {
+    log(room, null, 'recovery', `Estado del trabajo reparado: ${fixes.join('; ')}.`);
+    changed(room);
+  }
+  return fixes;
 }
 
 // Una tarea reclamada por alguien que ya no está (ausente, o sin dar señales desde

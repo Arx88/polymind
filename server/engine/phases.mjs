@@ -18,7 +18,7 @@ import { finishRoom, closeRoom } from './result.mjs';
 import {
   closeAudit, startWork, maybeFinishWork, closeWork, approvedImprovements, sweepClaims,
   reviewIsCovered, reviewState, improvementsFromReview, addReviewItems, workBusyReason,
-  ensureWorkItems, workFrom,
+  ensureWorkItems, workFrom, reconcileWork,
 } from './work.mjs';
 
 // 0 is the legacy wire-format sentinel; phaseAdvanceMode tells clients there is no clock.
@@ -773,17 +773,23 @@ export function sweep(room, { force = false } = {}) {
   if (room.status === 'closed') return false;
   const t = now();
   const recovered = recoverWorkParticipants(room);
+  // Los invariantes del trabajo se reparan antes de decidir nada: un estado imposible (un parche
+  // en vuelo cuya tarea volvió al montón) bloqueaba el árbol y nadie podía deshacerlo.
+  reconcileWork(room);
   const health = workflowHealth(room);
-  if (!force && health) {
-    const key = `${health.state}:${health.reason}`;
-    if (room.recoveryNotice !== key) {
-      room.recoveryNotice = key;
-      log(room, null, 'recovery', `${health.reason} ${health.action}`);
-      return true;
-    }
-    return recovered;
+  // El aviso de salud es un AVISO, no un freno: la sala sigue mirando sus plazos. Antes, con el
+  // aviso puesto, `sweep` volvía antes de procesar el vencimiento, así que una sala con la
+  // revisión trabada se quedaba varada para siempre: ni cerraba, ni prorrogaba, ni gastaba su
+  // techo de duración. El aviso sigue quedando escrito (una vez por motivo).
+  const healthKey = health ? `${health.state}:${health.reason}` : null;
+  if (healthKey && room.recoveryNotice !== healthKey) {
+    room.recoveryNotice = healthKey;
+    log(room, null, 'recovery', `${health.reason} ${health.action}`);
+    room.__changed = true;
+  } else if (!healthKey && room.recoveryNotice) {
+    delete room.recoveryNotice;
+    room.__changed = true;
   }
-  if (room.recoveryNotice) { delete room.recoveryNotice; room.__changed = true; }
   if (recovered) return true;
   if (room.phase.name === 'review' && room.finalReviewDeadline > t && !force) {
     maybeAdvance(room);

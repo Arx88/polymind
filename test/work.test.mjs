@@ -807,6 +807,138 @@ test('trabajo: una tarea no se libera mientras su parche está en manos del serv
   assert.equal(room.work.items[patch.itemId].status, 'integrated');
 });
 
+// ---------------------------------------------------------------- estados imposibles
+// El caso de la sala real gn89q7: un agente esperaba la revisión de su parche, el turno le
+// ofrecía «claim-item» (que el motor rechaza) y, sin otra salida a la vista, usó «pass» para
+// ceder el turno. Aquello dejó la tarea abierta con el parche en vuelo: nadie podía revisarlo
+// («no está en revisión») ni entregar nada («hay un parche esperando revisión»), y la sala se
+// quedó girando en 401 y latidos hasta que el humano la forzó.
+test('trabajo: retirarse con el parche propio en revisión no lo tira ni deja la tarea abierta', async () => {
+  const { room, ids } = await workRoom('calc', ['Ana', 'Bruno']);
+
+  await drive(room, behaviors(ids, { findings: [FIND_TOTAL], patch: () => PATCH_FILES }), {
+    stop: r => !!r.work?.pending,
+  });
+  const patchId = room.work.pending;
+  const patch = room.work.patches[patchId];
+  const item = room.work.items[patch.itemId];
+  const reviewer = ids.find(id => id !== patch.author);
+
+  applyMove(room, patch.author, { kind: 'pass' });
+
+  assert.equal(room.agents[patch.author].workOptOut, true, 'el autor queda como observador');
+  assert.equal(room.work.pending, patchId, 'su parche sigue en vuelo: retirarse no lo tira');
+  assert.equal(item.status, 'in-review', 'la tarea sigue en revisión, no vuelve abierta al montón');
+  assert.ok(!room.log.some(e => /devuelve la tarea/.test(e.text || '')), 'no se devuelve al montón un parche entregado');
+  assert.match(room.log.at(-1).text, /deja el trabajo/);
+
+  // El turno ya no le pide un movimiento imposible: le dice la verdad.
+  const turn = currentTurn(room, patch.author);
+  assert.equal(turn.action, 'wait', 'nada de claim-item para quien ya no puede reclamar');
+  assert.match(turn.message, /en revisión/);
+
+  // Y la revisión hace su trabajo: la sala no queda bloqueada.
+  applyMove(room, reviewer, {
+    kind: 'review-patch',
+    payload: { itemId: item.id, verdict: 'approve', notes: 'Cambio mínimo, correcto y con la comprobación al día.' },
+  });
+  await settle(room);
+  assert.equal(item.status, 'integrated', 'la mejora se integra aunque su autor se haya retirado');
+});
+
+test('trabajo: un estado imposible (parche en vuelo con la tarea abierta) se repara solo', async () => {
+  const { room, ids } = await workRoom('calc', ['Ana', 'Bruno']);
+
+  await drive(room, behaviors(ids, { findings: [FIND_TOTAL], patch: () => PATCH_FILES }), {
+    stop: r => !!r.work?.pending,
+  });
+  const patch = room.work.patches[room.work.pending];
+  const item = room.work.items[patch.itemId];
+  const reviewer = ids.find(id => id !== patch.author);
+  const breakIt = () => { item.status = 'open'; item.claimant = null; item.reviewer = null; };
+
+  // Así quedaba la sala cuando alguien se retiraba con su parche entregado (antes del arreglo).
+  breakIt();
+  sweep(room);
+  assert.equal(item.status, 'in-review', 'el invariante vuelve a cumplirse en el barrido');
+  assert.equal(item.reviewer, patch.reviewer, 'y la tarea reconoce a su revisor');
+  assert.ok(room.log.some(e => /Estado del trabajo reparado/.test(e.text || '')), 'la reparación queda escrita');
+
+  // Y aunque nadie barra, el propio movimiento legítimo del revisor lo repara en el sitio.
+  breakIt();
+  applyMove(room, reviewer, {
+    kind: 'review-patch',
+    payload: { itemId: item.id, verdict: 'approve', notes: 'El cambio hace lo que dice.' },
+  });
+  await settle(room);
+  assert.equal(item.status, 'integrated', 'la revisión ya no se rechaza por un estado roto');
+});
+
+test('trabajo: sin parche en vuelo, una tarea atascada en revisión vuelve al montón', async () => {
+  const { room, ids } = await workRoom('calc', ['Ana', 'Bruno']);
+
+  await drive(room, behaviors(ids, { findings: [FIND_TOTAL], patch: () => PATCH_FILES }), {
+    stop: r => !!r.work?.pending,
+  });
+  const patch = room.work.patches[room.work.pending];
+  const item = room.work.items[patch.itemId];
+  const other = ids.find(id => id !== patch.author);
+
+  // El parche desapareció por un camino roto: la tarea no puede quedarse «en revisión» para siempre.
+  room.work.pending = null;
+  sweep(room);
+  assert.equal(item.status, 'open', 'la tarea vuelve al montón');
+  assert.equal(item.claimant, null);
+  assert.match(item.note, /no había ningún parche en vuelo/);
+
+  applyMove(room, other, { kind: 'claim-item', payload: { itemId: item.id } });
+  assert.equal(item.status, 'claimed', 'y otro puede retomarla');
+  assert.equal(item.claimant, other);
+});
+
+test('trabajo: quien se retira no recibe reclamaciones que el motor va a rechazar', async () => {
+  const { room, ids } = await workRoom('calc');
+  await drive(room, behaviors(ids, { findings: [FIND_TOTAL] }), { stop: r => r.phase.name === 'work' });
+  const [a, b] = ids;
+
+  applyMove(room, b, { kind: 'pass' });
+  const turn = currentTurn(room, b);
+  assert.equal(turn.action, 'wait', 'al observador no se le ofrece reclamar');
+  assert.match(turn.message, /fuera del trabajo/);
+  assert.deepEqual(turn.payloadSchema, [], 'y no se le ofrece ningún movimiento');
+
+  // El motor lo rechazaría igual: el turno ahora dice la verdad en vez de invitar a un 401.
+  assert.throws(
+    () => applyMove(room, b, { kind: 'claim-item', payload: { itemId: room.work.order[0] } }),
+    err => err.code === 'unauthorized',
+  );
+  assert.ok(room.work.items[room.work.order[0]].status === 'open', 'la tarea sigue libre para quien sí trabaja');
+  assert.ok(currentTurn(room, a).action !== 'wait', 'y quien trabaja sigue teniendo qué hacer');
+});
+
+test('salud: el aviso de atasco no aparca la sala (los plazos siguen corriendo)', async () => {
+  const { room, ids } = await workRoom('calc', ['Ana', 'Bruno']);
+
+  await drive(room, behaviors(ids, { findings: [FIND_TOTAL], patch: () => PATCH_FILES }), {
+    stop: r => !!r.work?.pending,
+  });
+  const patchId = room.work.pending;
+
+  // La revisión lleva más de la cuenta sin veredicto (la salud avisa «stalled») y el plazo ya venció.
+  room.work.patches[patchId].reviewAssignedAt = Date.now() - claimIdleThresholdMs(room) - 60_000;
+  room.phase.deadline = Date.now() - 1_000;
+
+  assert.equal(sweep(room), true, 'la sala procesa el vencimiento en vez de quedarse varada');
+  assert.equal(room.phase.name, 'work');
+  assert.equal(room.phase.data.extensions, 1, 'prorroga: hay un parche esperando revisión');
+  assert.ok(room.log.some(e => /no ha producido un veredicto/.test(e.text || '')), 'el aviso de salud queda escrito');
+
+  // El aviso se escribe una vez, no en cada barrido.
+  const notices = room.log.filter(e => /no ha producido un veredicto/.test(e.text || '')).length;
+  sweep(room);
+  assert.equal(room.log.filter(e => /no ha producido un veredicto/.test(e.text || '')).length, notices);
+});
+
 // ---------------------------------------------------------------- reanudación
 test('reinicio: la verificación que quedó a medias se retoma sobre el mismo árbol y termina integrando', async () => {
   const { room, ids } = await workRoom('calc');

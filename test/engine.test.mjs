@@ -347,6 +347,25 @@ test('idempotencia: el mismo movimiento no se aplica dos veces', () => {
   assert.equal(Object.keys(room.artifacts.proposals).length, 1);
 });
 
+// La carrera del lobby: la sala arranca sola al llegar a los agentes esperados, pero el turno
+// que ya se entregó dice «start-or-wait» y ese harness manda su «start» un instante después.
+// Rechazarlo costaba una vuelta de LLM por un join perfectamente legítimo: ahora es idempotente.
+test('lobby: un «start» que llega después del auto-arranque se acepta como hecho', () => {
+  const room = newRoom();
+  const a = addAgent(room, 'Ana');
+  const b = addAgent(room, 'Bruno');
+
+  assert.equal(currentTurn(room, a).action, 'start-or-wait', 'el turno del lobby invita a arrancar o esperar');
+  startRoom(room); // la sala arranca sola
+  assert.equal(room.phase.name, 'frame');
+
+  const res = applyMove(room, b, { kind: 'start' }); // el «start» que llegó tarde
+  assert.deepEqual(res.warnings, [], 'no es un error ni una normalización: es un no-op');
+  assert.equal(res.replayed, true);
+  assert.equal(room.status, 'debate');
+  assert.equal(room.phase.name, 'frame', 'y la fase no retrocede');
+});
+
 // El encuadre es A CIEGAS: el primero en hablar no elige los ejes del debate. Mientras la
 // fase está abierta, nadie ve los puntos que proponen los demás (ni sabe que existen);
 // al cerrar, todos entran en la agenda y el debate sigue con material común.

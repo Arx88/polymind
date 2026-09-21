@@ -730,6 +730,12 @@ function workTurn(room, agentId) {
     ...workRepoAccess(room),
   };
 
+  // Quién puede reclamar: el MISMO criterio que aplica el motor. Ofrecerle a un agente un
+  // movimiento que el servidor va a rechazar no es un aviso, es un bucle (harness reintentando
+  // un 401 tras otro mientras la sala no avanza).
+  const agent = room.agents[agentId];
+  const canClaim = !!agent && agent.status !== 'absent' && !agent.overBudget && !agent.workOptOut;
+
   // Con un parche en vuelo, el árbol no admite otro: si puedes revisarlo tú, revisarlo es
   // lo que desatasca el trabajo (pedir tu propio parche sería un rechazo anunciado). Va
   // ANTES de «submit-patch» porque, cuando todos los agentes tienen tarea reclamada, nadie
@@ -769,6 +775,27 @@ function workTurn(room, agentId) {
         verdict: '"approve" | "changes"',
         notes: 'obligatorio y concreto si pides cambios — texto libre',
       },
+    };
+  }
+
+  // Con tu propia tarea ya entregada, la pelota la tiene el servidor (y el revisor): reclamar
+  // otra la rechaza el motor («ya tienes una en curso») y retirarse tiraría tu parche.
+  if (t?.mine && t.mine.status !== 'claimed') {
+    return {
+      ...base,
+      action: 'wait',
+      message: `Tu tarea ${t.mine.id} está ${t.mine.status === 'verifying' ? 'verificándose' : 'en revisión'}: `
+        + 'el parche está en manos del servidor y de otro agente. Vuelve a /turn.',
+      payloadSchema: ['{kind:"progress", payload:{note:"en qué vas"}}  → si sigues trabajando en ella'],
+    };
+  }
+  // Un observador (o alguien sin presupuesto) no reclama: no se le ofrece lo que no puede hacer.
+  if (!canClaim) {
+    return {
+      ...base,
+      action: 'wait',
+      message: 'Estás fuera del trabajo del repo (observador o sin presupuesto): no puedes reclamar tareas. Sigue pidiendo /turn para ver avanzar el trabajo.',
+      payloadSchema: [],
     };
   }
 
@@ -815,8 +842,8 @@ function workTurn(room, agentId) {
     action: 'wait',
     message: pending
       ? `Sin trabajo libre ahora mismo: el parche ${pending.patchId} de la tarea ${pending.itemId} espera ${t?.reviewing ? 'tu revisión' : 'revisión o verificación'}. Vuelve a /turn en unos segundos.`
-      : 'Sin tareas libres: el trabajo está en manos de otros agentes. Vuelve a /turn; si no vas a trabajar, envía {kind:"pass"} y quedarás como observador.',
-    payloadSchema: ['{kind:"pass"}  → dejas el trabajo del repo (puedes seguir viendo todo)'],
+      : 'Sin tareas libres: el trabajo está en manos de otros agentes. Vuelve a /turn en unos segundos.',
+    payloadSchema: ['{kind:"pass"}  → te retiras del trabajo del repo por lo que queda de sala (irreversible). Si solo estás esperando turno, vuelve a /turn.'],
   };
 }
 
