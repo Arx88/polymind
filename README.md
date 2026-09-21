@@ -504,6 +504,10 @@ reunidos, o cuando alguien emite `{"kind":"start"}`.
 Registro: `AGORA_LOG_LEVEL` (`info` por defecto; `debug` apunta también cada sondeo del
 panel), `AGORA_LOG_MEMORY` (400 eventos en memoria) y `AGORA_LOG_FILE` (opcional).
 
+Memoria durable (sección 12): `AGORA_MEMORY_REPO` (usuario/repo) y `AGORA_MEMORY_TOKEN`, o
+`AGORA_MEMORY_GIT` con cualquier URL o ruta; `AGORA_MEMORY_FLUSH_MS` (5000) marca el ritmo de
+publicación y `AGORA_MEMORY=0` apaga la memoria aunque haya configuración.
+
 ---
 
 ## 11. Registro: qué pasó, aunque el host se duerma
@@ -538,3 +542,41 @@ Los tokens nunca se escriben: se tachan al registrar, también dentro de una URL
 sí lleva códigos de sala, nombres de agentes y direcciones de origen (lo mismo que ya muestra
 el panel). Con `AGORA_LOG_FILE=./polymind.log` se guarda además en un archivo, cómodo para
 trabajar en local (`tail -f`).
+
+---
+
+## 12. Memoria durable: el trabajo no se queda en el disco del host
+
+El registro cuenta lo que pasó; esto hace que el trabajo **vuelva**. En un host efímero (el plan
+gratuito de Render) dormir, reiniciar o desplegar borra la carpeta `data/`: las salas y los repos
+que escriben los agentes desaparecen con ella. Con un repositorio git como memoria, no.
+
+```bash
+AGORA_MEMORY_REPO=tu-usuario/polymind-memoria   # repo privado que guarda todo
+AGORA_MEMORY_TOKEN=ghp_…                        # token con permiso de escritura en ese repo
+node server/index.mjs
+```
+
+Cómo funciona, sin sorpresas:
+
+- **Al guardar**: cada vez que una sala avanza (los latidos no cuentan), el JSON de la sala se
+  copia a un espejo local (`data/.memory/mirror`) y sale en un solo `git push`, con espera de 5 s
+  por defecto (`AGORA_MEMORY_FLUSH_MS`). Al cerrarse una sala el volcado es inmediato, y al parar
+  el servidor (un despliegue manda `SIGTERM`) también.
+- **El código viaja como ramas**: `ws/<code>` lleva los commits integrados y `wip/<code>` el corte
+  de lo que está preparado sin comitear — un parche esperando revisión vuelve esperando revisión,
+  no como un cambio suelto. El estado de cada sala va en `rooms/<code>.json` y el índice en
+  `meta.json`.
+- **Al arrancar**: `hydrate()` trae el remoto y repone lo que falte: la sala si la copia publicada
+  va por delante de la de disco, y el workspace de las salas abiertas (la rama, la política de fin
+  de línea y el corte a medias). Queda en el log como
+  `memory.hydrate { roomsOnDisk, roomsAdopted, workspaces, remoteReached }`.
+- **Si no hay red**, el espejo manda y el push se reintenta con espera creciente: el trabajo no se
+  pierde por un fallo de conexión.
+- El repo tiene que ser **privado**: guarda el estado completo de las salas, incluidos los tokens
+  de sesión de los agentes. La URL se registra sin credenciales (el token solo viaja en cada
+  operación de red).
+- **Opcional de verdad**: sin `AGORA_MEMORY_REPO` ni `AGORA_MEMORY_GIT` esto es una pieza inerte y
+  nada cambia. Con `AGORA_MEMORY=0` se apaga aunque haya configuración. `AGORA_MEMORY_GIT` acepta
+  cualquier URL o ruta (útil para probar contra un repo local).
+- A la vista: `GET /api/health` incluye `memory: { hydrated, dirty, pendingPush, lastPushAt, lastError }`.

@@ -208,6 +208,9 @@ export class Hall {
     this.dir = dir;
     this.sweep = sweep;
     this.cache = new Map();
+    // Gancho de la memoria durable: se avisa después de CADA guardado real para que el trabajo
+    // pueda salir del disco efímero. Vacío = comportamiento de siempre.
+    this.onPersist = null;
     // Última versión conocida de cada sala: su huella en disco (mtime:bytes) y cuánto había
     // avanzado. La huella detecta que OTRO proceso escribió; el progreso evita que una copia
     // pobre —en disco o en manos de quien la leyó antes— pise una que ya avanzó más.
@@ -317,6 +320,10 @@ export class Hall {
       this.mark(room.code, this.stampOf(f), progressOf(room));
       room.__changed = false;
       delete room.__storageFailure;
+      if (this.onPersist) {
+        // La memoria no puede tumbar un guardado: si el aviso falla, el archivo ya está bien.
+        try { this.onPersist(room); } catch { /* la sala sigue viva */ }
+      }
       return true;
     } catch (error) {
       // Preserve the dirty state so the clock can retry. Never present volatile

@@ -5,7 +5,14 @@
 # panel y hacer un debate corto, pero cada reinicio —y cada vez que la instancia se duerme por 15
 # minutos sin visitas— se lleva por delante lo que estuviera en curso.
 #
-# Para trabajo de verdad, cambia a instancia de pago y añade el disco:
+# Sin pagar nada hay salida: la memoria durable publica salas y workspaces en un repo git privado
+# y los rehidrata al arrancar, asi que el trabajo vuelve aunque el disco se borre (README, 12).
+# Se configura en el panel (Environment):
+#
+#   AGORA_MEMORY_REPO   tu-usuario/polymind-memoria
+#   AGORA_MEMORY_TOKEN  token con permiso de escritura en ese repo
+#
+# Para trabajo de verdad, cambia a instancia de pago y anade el disco:
 #
 #   plan: starter
 #   envVars:
@@ -31,3 +38,9 @@ services:
       # vuelve siempre por su propio pie y el manual dice lo mismo que el servidor cumple.
       - key: AGORA_MAX_WAIT_SEC
         value: "30"
+      # Memoria durable (opcional): descomenta y rellena para que el trabajo no se pierda
+      # cuando la instancia se duerme o se redespliega.
+      # - key: AGORA_MEMORY_REPO
+      #   sync: false
+      # - key: AGORA_MEMORY_TOKEN
+      #   sync: false

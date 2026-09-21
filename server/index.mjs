@@ -125,13 +125,24 @@ export function start(port = parseInt(process.env.PORT || '8787', 10), opts = {}
           roomsOnDisk: roomsOnDisk(DATA_DIR),
           roomsInMemory: agora.hall.list().length,
           waitSecMax: Number(process.env.AGORA_MAX_WAIT_SEC || 120),
+          memoryRepo: agora.memory?.enabled ? agora.memory.repo : null,
         });
+        // La memoria durable se rehidrata en segundo plano: el servidor responde ya (los health
+        // checks del host no esperan) y las salas van apareciendo desde el repo a medida que llegan.
+        if (agora.memory?.enabled) {
+          console.log(`  Memoria:         ${agora.memory.repo} (rehidratando)`);
+          agora.memory.hydrate().then(s => {
+            if (!s || s.skipped) return;
+            console.log(`  Memoria lista:   ${s.rooms} salas repuestas · ${s.workspaces} workspaces · remoto ${s.remote ? 'alcanzado' : 'sin respuesta'}`);
+          });
+        }
         resolve({
           port: p,
           server: agora.server,
           hall: agora.hall,
           hub: agora.hub,
           tournaments: agora.tournaments,
+          memory: agora.memory,
           // Soltar el candado forma parte de parar: si no, la siguiente instancia se encontraría
           // el directorio ocupado por un proceso que ya no existe.
           stop: () => {
@@ -147,7 +158,24 @@ export function start(port = parseInt(process.env.PORT || '8787', 10), opts = {}
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  start().catch(err => {
+  start().then(app => {
+    // Un despliegue o un Ctrl-C piden la parada: antes de morir, la memoria se vacía. Sin esto,
+    // el trabajo del último minuto se queda en un disco que el host va a borrar.
+    let closing = false;
+    const bye = signal => {
+      if (closing) return;
+      closing = true;
+      log.info('server.signal', { signal });
+      const limit = setTimeout(() => process.exit(0), 10_000);
+      limit.unref?.();
+      Promise.resolve(app.stop()).catch(() => null).finally(() => {
+        clearTimeout(limit);
+        process.exit(0);
+      });
+    };
+    process.on('SIGTERM', () => bye('SIGTERM'));
+    process.on('SIGINT', () => bye('SIGINT'));
+  }).catch(err => {
     log.error('server.boot_failed', { message: err?.message, code: err?.code, dataDir: DATA_DIR });
     console.error('No se pudo arrancar AGORA:', err.message);
     process.exit(1);

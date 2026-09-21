@@ -23,6 +23,7 @@ import { manualText, bootstrapText, snippetsFor, joinPrompt, MAX_WAIT_SEC } from
 import { listTemplates, getTemplate, roomInputFromTemplate, saveTemplate } from '../templates.mjs';
 import { TournamentManager } from '../tournament.mjs';
 import { log as reg } from '../log.mjs';
+import { createMemory, memoryConfigFromEnv } from '../memory.mjs';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -38,8 +39,18 @@ const MIME = {
   '.map': 'application/json; charset=utf-8',
 };
 
-export function createAgora({ dataDir, appDistDir, clockMs = 1000 } = {}) {
+export function createAgora({ dataDir, appDistDir, clockMs = 1000, memory = undefined } = {}) {
   const hall = new Hall(dataDir, { sweep });
+
+  // Memoria durable (opcional): con un repo configurado, TODO lo que se guarda en disco sale
+  // también del disco — es lo que hace que el trabajo vuelva cuando el host borra la carpeta
+  // (dormir, reiniciar, desplegar). Sin configuración es una pieza inerte: nada cambia.
+  const mem = createMemory({
+    dataDir,
+    config: memory === false ? null : (memory || memoryConfigFromEnv()),
+    logger: reg,
+  });
+  hall.onPersist = room => mem.touch(room);
   const hub = new LiveHub(hall);
   const tournaments = new TournamentManager({ hall, dir: dataDir });
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -362,7 +373,14 @@ export function createAgora({ dataDir, appDistDir, clockMs = 1000 } = {}) {
     // ---------------------------------------------------------- documentos
     if (m === 'GET' && p === '/manual') { send(res, 200, manualText(), 'text/markdown; charset=utf-8'); return; }
     if (m === 'GET' && p === '/api/health') {
-      sendJSON(res, 200, { ok: true, rooms: hall.list().length, ...hub.stats(), uptimeSec: Math.round(process.uptime()) });
+      sendJSON(res, 200, {
+        ok: true,
+        rooms: hall.list().length,
+        ...hub.stats(),
+        // La memoria, a la vista: cuándo se publicó por última vez y si quedó algo pendiente.
+        ...(mem.enabled ? { memory: mem.status() } : null),
+        uptimeSec: Math.round(process.uptime()),
+      });
       return;
     }
     // El registro, legible desde fuera: ?level=warn, ?room=CODE, ?ev=room. y ?limit=N.
@@ -912,7 +930,15 @@ export function createAgora({ dataDir, appDistDir, clockMs = 1000 } = {}) {
     sendJSON(res, 404, { ok: false, error: 'not_found', message: 'Subruta desconocida' });
   }
 
-  return { server, hall, hub, tournaments, dist, stop: () => stopClock() };
+  return {
+    server, hall, hub, tournaments, dist, memory: mem,
+    // Parar incluye vaciar la memoria: es el último momento en que el trabajo puede salir del
+    // disco antes de que el host lo borre (un despliegue envía SIGTERM y espera un poco).
+    stop: () => {
+      stopClock();
+      return mem.stop();
+    },
+  };
 }
 
 // ---------------------------------------------------------------- utilidades
