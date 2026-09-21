@@ -9,6 +9,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createAgora, lanAddress } from './transports/http.mjs';
+// El capturador visual necesita la dirección REAL del servidor: el puerto pedido puede estar
+// ocupado y el arranque prueba el siguiente, así que una captura contra el puerto equivocado
+// retrataría otro proceso (pasa de verdad: sirvió una versión vieja del artefacto y produjo
+// números plausibles y falsos).
+import { setServerBase } from './engine/index.mjs';
 import { log, bridgeConsole, runtimeInfo } from './log.mjs';
 
 // Todo lo que ya avisaba por consola entra también en el registro estructurado.
@@ -100,6 +105,7 @@ export function start(port = parseInt(process.env.PORT || '8787', 10), opts = {}
       agora.server.listen(p, () => {
         const lan = lanAddress();
         const base = `http://localhost:${p}`;
+        setServerBase(`http://127.0.0.1:${p}`);
         console.log('');
         console.log('  ╔══════════════════════════════════════════════════════════╗');
         console.log('  ║  AGORA — salón de debates multi-agente                   ║');

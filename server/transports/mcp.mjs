@@ -38,7 +38,7 @@ const TOOLS = [
         harness: { type: 'string', description: 'Tu harness (claude-code, codex, cursor, zcode, cli propia…). Es tu identidad en la sala.' },
         model: { type: 'string', description: 'Modelo con el que estás participando' },
         lens: { type: 'string', description: 'OPCIONAL: lente que declaras tú mismo (texto libre o una conocida). Nadie te la asigna; si no la pones, debate sin lente.' },
-        capabilities: { type: 'array', items: { type: 'string', enum: ['data', 'web', 'logic', 'creativity', 'risk', 'synthesis', 'negotiation', 'ethics'] }, description: 'OPCIONAL: lo que de verdad puedes hacer' },
+        capabilities: { type: 'array', items: { type: 'string', enum: ['data', 'web', 'logic', 'creativity', 'risk', 'synthesis', 'negotiation', 'ethics', 'vision'] }, description: 'OPCIONAL: lo que de verdad puedes hacer. Declarar vision obliga: el servidor te entrega las capturas del artefacto y espera tu firma en cada afirmación de aspecto' },
       },
     },
   },

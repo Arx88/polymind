@@ -20,6 +20,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { gist } from './util.mjs';
 import { CAPS } from './settings.mjs';
 import { log } from './state.mjs';
+import { recordEvidence } from './ledger.mjs';
 
 // Techos de seguridad de la capa de repo. Igual que en el resto del motor: están puestos
 // para que el servidor no se ahogue, no para racionar información. Leer un archivo entero,
@@ -392,7 +393,12 @@ export function normalizeVerify(verify, timeoutMs = null) {
 // ---------------------------------------------------------------- verificación
 // Único punto donde se ejecuta algo del proyecto. `reused` evita que la misma
 // tarea verifique dos veces si nada cambió entre medias.
-export async function runVerify(room, { timeoutMs = null } = {}) {
+//
+// Aquí, y solo aquí, nace la EVIDENCIA de la sala: el comando, su código de salida y el commit
+// sobre el que corrió quedan en el libro mayor con su huella. Nadie teclea un número: los que
+// salen en el acta los produjo este proceso. `itemId` ata la medición al árbol de una tarea
+// (una verificación sobre un parche staged certifica ese contenido, no el HEAD del momento).
+export async function runVerify(room, { timeoutMs = null, kind = 'verify', itemId = null, by = null } = {}) {
   const repo = room.repo;
   if (!repo) return { ran: false, reason: 'sin-repo' };
   if (!repo.verify) return { ran: false, reason: 'sin-comando-de-verificacion' };
@@ -406,7 +412,7 @@ export async function runVerify(room, { timeoutMs = null } = {}) {
     maxChars: REPO_LIMITS.verifyOutputChars,
     env: { CI: '1', AGORA: room.code, FORCE_COLOR: '0' },
   });
-  return {
+  const out = {
     ran: true,
     command: repo.verify.command,
     exitCode: res.code,
@@ -416,11 +422,28 @@ export async function runVerify(room, { timeoutMs = null } = {}) {
     outputTail: clip(res.output, REPO_LIMITS.verifyOutputChars),
     at: Date.now(),
   };
+  try {
+    const { entry, reused } = recordEvidence(room, {
+      command: out.command,
+      exitCode: out.exitCode,
+      ok: out.ok,
+      output: res.output,
+      commit: repo.head || null,
+      dirty: !!itemId,
+      kind,
+      itemId,
+      by,
+    });
+    out.evidenceId = entry?.id || null;
+    out.evidenceHash = entry?.hash || null;
+    out.evidenceReused = !!reused;
+  } catch { /* el libro mayor nunca tumba una verificación */ }
+  return out;
 }
 
 export async function runBaseline(room) {
   if (!room.repo?.verify) return null;
-  const out = await runVerify(room);
+  const out = await runVerify(room, { kind: 'baseline' });
   return { ...out, status: 'done' };
 }
 

@@ -23,6 +23,8 @@ import { applyBudget } from './roster.mjs';
 import { startRoom, maybeAdvance, proceedToVerify, proceedToWork, enterPhase } from './phases.mjs';
 import { finishRoom } from './result.mjs';
 import { recordFinding, claimItem, submitPatch, reviewPatch, passWork, holdClaim, applyRecheck, reconcileWork } from './work.mjs';
+import { buildObligations } from './obligations.mjs';
+import { recordJudgment, captureInBackground, visualState } from './visual.mjs';
 
 const OBJECTION_TYPES = ['risk', 'cost', 'feasibility', 'ethics', 'missing-info', 'scope'];
 const SEVERITIES = ['high', 'med', 'low'];
@@ -282,6 +284,46 @@ function applyMoveInner(room, agentId, move = {}) {
     case 'recheck': {
       const res = applyRecheck(room, agentId, payload);
       respond({ itemId: res.item.id, verdict: res.verdict, pending: res.pending });
+      break;
+    }
+
+    // ---------------------------------------------------------------- juicio visual
+    // El servidor vuelve a retratar el artefacto AHORA. Es un movimiento porque quien lo pide
+    // suele ser quien acaba de integrar algo y necesita la imagen del commit nuevo para juzgarla:
+    // el turno vuelve enseguida y la captura llega al siguiente `/turn`.
+    case 'capture': {
+      const res = captureInBackground(room, { by: agentId, reason: 'pedida por un agente', force: true });
+      respond({
+        started: !!res.started,
+        because: res.because,
+        shots: visualState(room).shots.map(s => ({ id: s.id, hash: s.hash })),
+      });
+      break;
+    }
+    // Firmar un juicio sobre lo que se ve. La independencia y la frescura de la captura las
+    // calcula el servidor: el agente aporta el veredicto y el motivo.
+    case 'judgment': {
+      const claims = buildObligations(room).claims;
+      const wanted = clampStr(payload.claimId ?? payload.id ?? payload.claim, 20).toLowerCase();
+      // Aceptar el id (`o7`) o un fragmento largo del texto: un harness que manda la frase entera
+      // no debería recibir un rechazo por forma.
+      const claim = claims.find(c => c.id === wanted)
+        || (wanted.length >= 12 ? claims.find(c => c.type === 'juicio' && c.text.toLowerCase().includes(wanted)) : null)
+        || null;
+      if (!claim) {
+        const abiertas = claims.filter(c => c.type === 'juicio').slice(0, 6).map(c => `${c.id} (${gist(c.text, 70)})`);
+        throw new DebateError('bad_payload',
+          `No sé qué afirmación juzgas. Usa payload:{claimId} con una de tipo juicio: ${abiertas.join(' · ') || 'no hay ninguna en el plan'}.`);
+      }
+      const res = recordJudgment(room, agentId, payload, { claim });
+      respond({
+        claimId: claim.id,
+        verdict: res.judgment.verdict,
+        independence: res.independence.level,
+        closes: res.closes,
+        cited: res.judgment.captures.map(c => `${c.id}:${c.freshness}`),
+      });
+      warnings.push(...res.warnings);
       break;
     }
 

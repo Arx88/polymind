@@ -391,6 +391,112 @@ export interface DissentProtection {
   };
 }
 
+// Obligaciones de prueba: el plan convertido en afirmaciones tipadas, con su dueño y su
+// evidencia. El veredicto y los recuentos los genera el servidor desde los artefactos (plan
+// congelado, tareas y mediciones), no los redacta un agente: por eso puede decir «no cumplido»
+// de una sala con doscientas comprobaciones verdes.
+export interface ObligationClaim {
+  id: string;
+  text: string;
+  source: 'plan' | 'sintesis';
+  type: 'executable' | 'juicio' | 'cifra' | 'sin-clasificar';
+  typeBecause: string;
+  status: string;
+  statusBecause: string;
+  pointId: string | null;
+  pointLabel: string | null;
+  ownerId: string | null;
+  ownerTitle: string | null;
+  ownerStatus: WorkStatus | null;
+  judge: string[] | null;
+  evidenceId: string | null;
+  evidenceHash: string | null;
+  evidenceStatus: 'fresca' | 'provisional' | 'caduca' | null;
+  commands: string[];
+  files: string[];
+}
+
+export interface Obligations {
+  generatedAt: number;
+  delivery: 'plan' | 'code';
+  head: string | null;
+  verdict: 'cumplido' | 'cumplido-con-pendientes' | 'no-cumplido' | 'no-verificable';
+  note: string;
+  claims: ObligationClaim[];
+  counts: {
+    total: number; ejecutables: number; juicios: number; cifras: number; sinClasificar: number;
+    medidas: number; sinEvidencia: number; sinDueno: number; sinJuez: number; conDueno: number;
+    juzgadas?: number; contradichas?: number; capturas?: number; vision?: number; sinFirmar?: number;
+  };
+  blockers: { kind: string; text: string; because: string }[];
+  pendings: { kind: string; text: string; because: string }[];
+  ask: {
+    clauses: { clause: string; covered: boolean; by: string | null; ratio: number }[];
+    covered: number;
+    uncovered: { clause: string; ratio: number }[];
+    coverage: number;
+  };
+  decisions: {
+    approved: number;
+    materialized: number;
+    items: { pointId: string | null; title: string; itemId: string; status: WorkStatus }[];
+    unmaterialized: { pointId: string | null; title: string; reason: string }[];
+  };
+  evidence: {
+    total: number; frescas: number; provisionales: number; caducas: number; reutilizadas: number;
+    porComando: { command: string; count: number }[];
+    entries: {
+      id: string; hash: string; kind: string; command: string; exitCode: number | null; ok: boolean | null;
+      commit: string | null; itemId: string | null; status: 'fresca' | 'provisional' | 'caduca';
+      uses: number; at: number; outputTail: string | null;
+    }[];
+  };
+  vacuous: { id: string | null; by: string | null; claim: string; because: string }[];
+  worlds: { declared: number; signatures: number; list: string[]; measuredBy: string; single: boolean; note: string };
+  // Evidencia visual: lo que el servidor capturó del artefacto y quién firmó qué sobre ello.
+  // Un juicio no cierra por venir de un agente: la independencia y la frescura las calcula el
+  // servidor, y aquí se publican tal cual.
+  visual?: {
+    available: boolean;
+    running: boolean;
+    head: string | null;
+    renderer: string | null;
+    viewport: { width: number; height: number } | null;
+    note: string | null;
+    notTested: string | null;
+    shots: {
+      id: string; label: string; hash: string | null; file: string | null; bytes: number;
+      freshness: 'fresca' | 'provisional' | 'caduca' | 'negra' | 'fallida' | 'inexistente';
+      brightness: number | null; contrast: number | null; alive: number | null;
+      blank: boolean; error: string | null; url: string;
+    }[];
+    judgments: {
+      id: string; claimId: string; verdict: 'pasa' | 'no-pasa' | 'dudoso'; reason: string;
+      judge: string; independence: 'autor' | 'coautor' | 'ajeno'; closes: boolean;
+      visionDeclared?: boolean;
+      captures: { id: string; freshness: string }[]; at: number;
+    }[];
+    // Quién declaró la capacidad «vision»: mirar el artefacto es su parte de la obligación, y lo
+    // que le falta firmar se cuenta igual que cualquier otra obligación abierta.
+    vision?: {
+      seers: { name: string; harness: string | null; model: string | null; signed: number; pending: string[] }[];
+      missing: number;
+      note: string;
+    };
+  };
+  // El humano, al final y sobre lo entregado: aprueba o pide cambios concretos.
+  human?: {
+    verdict: 'aprobado' | 'cambios';
+    at: number;
+    by: string;
+    rounds: number;
+    reviewed: number;
+    open: string[];
+    requests: { id: string; text: string; status: 'atendido' | 'en-curso' | 'revertido' | 'sin-tarea'; because: string; itemIds: string[] }[];
+    note: string;
+  } | null;
+}
+
 export interface RoomResult {
   task: string;
   title: string;
@@ -425,6 +531,25 @@ export interface RoomResult {
   };
   dissent: { by: string; text: string; severity: string; addressed: boolean; point?: string }[];
   dissentProtection?: DissentProtection;
+  // Obligaciones de prueba generadas al cerrar: qué afirma el plan, con qué evidencia y qué
+  // quedó sin cerrar (sin dueño, sin juez, decisiones votadas sin obra, encargo sin cobertura).
+  obligations?: Obligations;
+  // Veredicto humano posterior a la entrega: quién lo firmó, qué pidió y en qué quedó cada cambio.
+  humanReview?: {
+    verdict: 'aprobado' | 'cambios';
+    by: string;
+    at: number;
+    reason: string | null;
+    deliveredChecksum: string | null;
+    deliveredHead: string | null;
+    rounds: number;
+    reviewed: number;
+    shots: { id: string; hash: string | null }[];
+    requests: { id: string; text: string; askedAt: number; round: number | null; itemIds: string[]; status: string; because: string }[];
+    open: string[];
+    history: { id: string; verdict: 'aprobado' | 'cambios'; by: string; at: number; round: number | null; reason: string | null; reopened: boolean; requests: string[] }[];
+    note: string;
+  } | null;
   // El encuadre, auditado al cerrar: quién abrió el marco y si ordenó el debate.
   agendaReview?: AgendaReview;
   ruleChanges: { text: string; by: string; op: string | null }[];

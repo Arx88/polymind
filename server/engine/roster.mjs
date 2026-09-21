@@ -124,10 +124,12 @@ export function identityBrief(room, agentId) {
 // Las capacidades declaradas condicionan lo que se te puede exigir.
 function capabilityNote(agent) {
   if (!agent) return null;
-  const missing = [];
-  if (!agent.capabilities.includes('web')) missing.push('no exijas ni prometas fuentes externas');
-  if (!agent.capabilities.includes('data')) missing.push('evita pedir cálculos con datos que no tienes');
-  return missing.length ? `(${missing.join('; ')})` : null;
+  const missing = [];    if (!agent.capabilities.includes('web')) missing.push('no exijas ni prometas fuentes externas');
+    if (!agent.capabilities.includes('data')) missing.push('evita pedir cálculos con datos que no tienes');
+    // Declarar «vision» es un compromiso, no un adorno: el servidor te entrega las capturas del
+    // artefacto y espera tu firma en cada afirmación de aspecto antes de cerrar la obligación.
+    if (agent.capabilities.includes('vision')) missing.push('declaraste visión: las capturas del artefacto se te entregan y se espera tu firma en cada afirmación de aspecto');
+    return missing.length ? `(${missing.join('; ')})` : null;
 }
 
 function profileName(room, agent) {

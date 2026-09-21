@@ -402,6 +402,135 @@ commits verificados. `--keep` conserva el repo de ejemplo y `--verify '<comando>
 el comando de verificación (con uno lento se ve el trabajo en marcha, y hasta se puede
 matar el servidor a mitad para comprobar que retoma lo que dejó a medias).
 
+### Obligaciones de prueba: el resultado se genera desde lo ejecutado
+
+Una sala puede cerrar con doscientas comprobaciones en verde y un entregable que no cumple
+la primera cláusula del encargo, porque el acta la redacta el modelo: la prosa del plan se
+copia y las cifras las teclea quien cierra. Aquí no.
+
+Al cerrar, el servidor recorre el **plan congelado** y tipa cada afirmación:
+
+| Tipo | Qué es | Cómo se cierra |
+|---|---|---|
+| **ejecutable** | nombra un comando o una comprobación (`node check.mjs` en verde, 63/63 del parser) | con una **medición del servidor**: comando, código de salida, commit y huella |
+| **de juicio** | habla de cómo se ve, se siente o se disfruta (estilo, espuma, «no cutre») | con el juicio de un **ojo externo sobre una captura fresca** del artefacto (ver «Juicio visual»); además, cada modelo que declaró `vision` **debe** firmar cada afirmación de aspecto, y lo que le falte se cuenta como obligación abierta |
+| **cifra de diseño** | un número sin instrumento (un palo de 60 m, 60 fps objetivo) | se publica como objetivo: nunca cuenta como resultado |
+
+La evidencia no la aporta nadie: la genera el **único punto donde el servidor ejecuta algo**
+(`runVerify`), con su comando, su código de salida y el commit medido. Dos corridas que miden
+lo mismo sobre el mismo árbol comparten huella, así que un hecho medido **se cita en vez de
+repetirse**; y si el árbol cambia —una mejora se integra, se deshace o la rama avanza— esa
+medición pasa a **provisional** o **caducada** en vez de seguir contando. Un número de otro
+commit no certifica el HEAD.
+
+A eso se suman las dos mitades que un acta escrita a mano omite:
+
+- **El encargo original contra el plan.** El servidor trocea la tarea que escribiste, cláusula
+  por cláusula, y busca cada una en el plan y en el trabajo. Lo que tu encargo pide y el plan no
+  menciona sale como **sin cobertura** (con la cláusula textual): la sala no puede reescribir tu
+  pregunta. Esta comparación es la parte que no depende de la agenda que la sala se dio a sí
+  misma.
+- **Las decisiones votadas sin obra.** Cada mejora que el debate aprobó y ninguna tarea recogió
+  se publica con su motivo (no entró en la cola, la cola era de N tareas, …). Votar es gratis si
+  el artefacto no se entera; aquí deja de serlo.
+
+Con todo eso se emite un **veredicto** —`cumplido`, `cumplido con pendientes`, `no cumplido`,
+`no verificable`— que **no se sube por mayoría**: las afirmaciones sin evidencia, las decisiones
+sin obra y las cláusulas sin cobertura lo bloquean. El acta lleva el informe generado (con el
+recuento de mediciones frescas, provisionales y caducadas) en `/export.md` y en `result.obligations`.
+
+### Juicio visual: el servidor captura el artefacto y exige la firma de quien no lo escribió
+
+La mitad visual del encargo era la que se quedaba en adjetivo: «se ve bien», «no debe verse
+cutre». El servidor cubre las dos partes que sí son mecánicas.
+
+**Produce la imagen.** Con un navegador headless (Chrome/Chromium/Edge; sin dependencias: habla
+CDP por el WebSocket nativo de Node) abre la página que la sala está construyendo —la misma que
+carga el panel—, espera a que se asiente y guarda el PNG. De cada toma se publica el hash, la
+luminancia, el contraste y el porcentaje de píxeles con contenido, **medidos decodificando el
+archivo** (una imagen negra se marca como sospechosa y no cuenta como evidencia; medir el búfer
+vivo del navegador fue justo el error que hizo parecer vacía una escena perfecta). Cada captura
+entra en el registro como una medición más: atada al commit, reutilizable por huella y **caducada**
+en cuanto la rama se mueve. La primera toma es al abrirse el trabajo y la última al integrarse el
+último ítem, así que el juicio tiene un antes y un después. El render es por software y se declara
+en el acta: sirve para juzgar el aspecto, **nunca** para acreditar fps.
+
+**Exige la firma.** En la fase de trabajo (y en la revisión posterior) cada agente recibe las
+capturas, las afirmaciones que esperan veredicto y **su propia independencia**, que calcula el
+servidor desde las tareas y los parches (`autor` / `coautor` / `ajeno`): el agente no la declara.
+
+```
+{kind:"capture",  payload:{}}                                  → el servidor recaptura el artefacto ahora
+{kind:"judgment", payload:{claimId, verdict:"pasa"|"no-pasa"|"dudoso", reason, captures:["id"]}}
+```
+
+Las reglas son del servidor, no del debate: un `pasa` **solo cierra** si lo firma un ojo `ajeno`
+citando una captura fresca; un `no-pasa` **abre bloqueo** aunque venga del autor —mirar y
+contradecir pesa más que no mirar— y exige motivo. Sin capturas, la afirmación sale como
+`sin-captura` y ninguna firma puede cerrarla: sin imagen, la sala publica que no miró, no un
+aprobado. Si el artefacto cambió después de mirar, el juicio caduca con la captura que citó.
+
+**Obliga a quien VE.** Declarar la capacidad `vision` al entrar no es un adorno: convierte mirar el
+artefacto en parte del trabajo. El servidor entrega las capturas a esos modelos en cada turno
+(`visual.you` dice qué firmaron y qué deben) y **cada afirmación de aspecto necesita su
+veredicto**: mientras falte una firma, la obligación sigue abierta y el veredicto no sube, con el
+nombre de quien no miró (`visión-sin-firmar`). Firmar sin haber declarado la capacidad se registra
+igual, pero el acta lo dice. Un modelo que ve y no firma deja la entrega sin cerrar.
+
+Se ve en el panel y en el resultado: las capturas con su estado, los juicios con quién firmó, con
+qué independencia y sobre qué imagen, los contadores `juzgadas` / `contradichas` / `capturas`
+y `vision` / `sinFirmar` al lado del veredicto, y una lista con **quién tenía que mirar** y qué
+firma le falta. Las imágenes se sirven en `/api/rooms/{code}/visual/{id}` (solo lo que está
+registrado en el índice de la sala). Si la máquina no tiene navegador, la sala lo dice:
+`not-tested`, nunca `pass`. Para configurar qué se retrata: `settings.visual.shots`
+(`[{id, label, url}]`, con url relativa a la vista previa o absoluta) y `settings.visual.enabled`.
+
+Para comprobar el camino completo en esta máquina (navegador real, servidor real, PNG servido por
+HTTP y firmas de verdad, incluida la del autor intentando aprobar lo suyo):
+`npm run check:visual` — necesita Chrome, Chromium o Edge; si no hay, lo dice y no inventa nada.
+Se puede forzar el navegador con `AGORA_CHROME=/ruta/al/binario`.
+
+De paso, dos cosas que el servidor ya sabe y ahora dice **antes** de que alguien gaste un turno:
+
+- **Alcance**: si una tarea manda construir lo que ya está en el repo (verbos como *añadir* o
+  *crear* sobre rutas o símbolos existentes), el turno de trabajo lo avisa con el archivo y la
+  línea (`ya-existe`: es verificar, no construir). Una sala votó «añadir `hull.js`» con `hull.js`
+  integrado y pasando sus 50 comprobaciones.
+- **Conflictos**: dos tareas que comparten archivos no pueden estar **en vuelo** a la vez;
+  reclamar la segunda devuelve un `busy` con el id y el archivo. Tres parches del debate tocaron
+  el mismo contrato de URL y dos el mismo archivo: se pagó en rebases que nadie pidió.
+
+Por último, el verificador ya no tiene que releer el plan para adivinar dónde está el hueco: su
+turno trae `obligations` con los objetivos que nadie cerró, y una comprobación cuya expectativa
+no se puede falsar (sin comparación ni cifra) se marca en vez de engordar el recuento verde.
+
+### El humano juzga al final, y sus cambios se convierten en trabajo
+
+El reparto de ojos no se solapa: los modelos que ven juzgan **durante** el trabajo; el humano
+juzga **cuando la sala ya entregó**, sobre el resultado congelado. Antes de la entrega el juicio
+humano se rechaza con su motivo (`not_delivered`): no hay nada que aceptar todavía, y un humano
+mirando a mitad de camino solo agrega un turno de espera.
+
+```
+POST /api/rooms/{code}/admin   {"adminToken":"…", "op":"human-review",
+  "verdict":"aprobado"|"cambios", "reason":"por qué", "requests":["qué cambiar", …]}
+```
+
+- `aprobado` acepta la entrega tal como está, con la huella de lo que se aprobó (checksum y las
+  capturas que estaban a la vista) y sin reabrir nada.
+- `cambios` exige decir **qué** cambiar (una petición de 12+ caracteres cada una; «no me gusta» no
+  es accionable), convierte cada pedido en una **tarea** y **reabre la sala**: el ciclo de trabajo
+  vuelve a abrirse y la sala cierra de nuevo al integrarlas, con las capturas de antes y de
+después al lado. Una petición pasa a `atendido` cuando su tarea entra, y mientras tanto se cuenta
+  como obligación incumplida (`humano-pide-cambios`), igual que una afirmación sin evidencia.
+- Si la sala no escribió código (solo planificación), los cambios quedan registrados con su
+  motivo (`sin-tarea`) en vez de fingir una ronda que no puede ejecutarse.
+- El veredicto viaja al turno de quien trabaja después de la reapertura (`obligations.human`), así
+  que quien rehace sabe por qué.
+
+Se firma desde el panel (bloque «Revisión humana» del resultado, con el token de administración) y
+el acta exportada lo publica con el estado real de cada petición.
+
 ---
 
 ## 6. Torneos: varias salas y una final
@@ -453,12 +582,23 @@ scripts/demo-work.mjs    demo viva: cinco harnesses auditan e implementan sobre 
 ## 8. Pruebas
 
 ```bash
-npm test            # registro + motor + trabajo + e2e (173 en total)
+npm test            # registro + motor + obligaciones + visual + humano + trabajo + e2e (228 en total)
 npm run test:log    # 8 pruebas del registro (niveles, anillo en memoria, recorte de
                     #  secretos, archivo opcional y huella de arranque del host)
 npm run test:engine # 56 pruebas del motor (agenda, indulgencia, fases, ausencias, encuadre
                     #  a ciegas, consenso por etapa, disenso protegido, bases de síntesis,
                     #  puntos que la síntesis deja abiertos, cierre)
+npm run test:obligations # 14 pruebas del libro de obligaciones: tipado de las afirmaciones
+                    # (ejecutable / juicio / cifra de diseño), el encargo original contra el
+                    # plan, la evidencia con huella que caduca al cambiar el árbol, el alcance
+                    # («manda crear lo que ya existe») y los conflictos de archivos entre tareas
+npm run test:visual # 19 pruebas de la evidencia visual: el PNG medido del archivo (una
+                    #  imagen negra no es evidencia), la captura atada al commit que caduca,
+                    #  la independencia calculada por el servidor, y la obligación de firmar
+                    #  de quien declara la capacidad «vision»
+npm run test:human  # 8 pruebas del juicio humano: solo sobre lo entregado, «cambios» con
+                    #  peticiones concretas, la reapertura de la sala con esas peticiones como
+                    #  tareas, y el paso a «atendido» cuando se integran
 npm run test:work    # 26 pruebas de trabajo conjunto sobre un repo git de verdad
                     # (parche aplicado y verificado, revisión ajena obligatoria, error
                     #  devuelto al autor, fallo preexistente, diff y patch finales,

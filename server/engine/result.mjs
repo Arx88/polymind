@@ -12,6 +12,8 @@ import {
 } from './agenda.mjs';
 import { macroOf, recursionRounds } from './settings.mjs';
 import { buildWorkResult, repoSummary } from './work.mjs';
+import { buildObligations, obligationsMarkdown } from './obligations.mjs';
+import { humanReviewReport } from './human.mjs';
 import { collaborationReport } from './collaboration.mjs';
 
 // Qué se lleva el humano de esta sala: CÓDIGO (en un repo ajeno o en un proyecto nuevo) o un
@@ -411,6 +413,9 @@ export function finishRoom(room, winnerId = null) {
   // historial de commits dos veces por el mismo dato.
   const workResult = buildWorkResult(room);
   const deliveryInfo = buildDelivery(room, workResult);
+  // El veredicto NO lo escribe nadie: se genera desde el plan congelado, las tareas y las
+  // mediciones que hizo el servidor. Una afirmación sin evidencia no se cuenta como cumplida.
+  const obligations = buildObligations(room);
 
   const result = {
     task: room.task,
@@ -443,6 +448,11 @@ export function finishRoom(room, winnerId = null) {
       findings: verification.findings || [],
       repaired: !!verification.repaired,
     } : null,
+    // Obligaciones de prueba: el plan tipado, con dueño, evidencia y lo que quedó sin cerrar.
+    obligations,
+    // El veredicto humano, si lo hubo: el final es suyo y se publica con lo que tenía delante
+    // (la huella de la entrega y las capturas de ese momento), no como un comentario suelto.
+    humanReview: humanReviewReport(room),
     consensus: {
       global: report.global,
       method: report.method,
@@ -522,6 +532,11 @@ export function finishRoom(room, winnerId = null) {
     ? `Entrega: ${plural(deliveryInfo.integrated, 'parte del plan integrada', 'partes del plan integradas')} en la rama ` +
       `${deliveryInfo.branch} (${deliveryInfo.files} archivos, ${plural(deliveryInfo.items, 'tarea')} de trabajo). ${deliveryInfo.note}`
     : `Sin código en esta entrega (${deliveryInfo.reason}): ${deliveryInfo.note}`);
+  // El veredicto de las obligaciones, en el registro: es lo primero que desmiente un acta
+  // demasiado optimista.
+  log(room, null, 'closed', obligations.verdict === 'cumplido'
+    ? `Obligaciones de prueba: CUMPLIDO — ${obligations.note}`
+    : `Obligaciones de prueba: ${obligations.verdict.toUpperCase()} — ${obligations.note}`);
 }
 
 export function closeRoom(room, outcome, reason) {
@@ -567,6 +582,9 @@ export function closeRoom(room, outcome, reason) {
     repo: repoSummary(room),
     work: workResult,
     delivery: deliveryInfo,
+    // Una sala que cierra sin decidir también dice qué quedó sin respaldo: el libro mayor se
+    // genera igual, aunque no haya plan ganador.
+    obligations: buildObligations(room),
     stats: { agents: room.order.length, durationMin: Math.round((now() - room.createdAt) / 60_000) },
     closedAt: now(),
   };
@@ -589,6 +607,12 @@ export function refreshFrozenResult(room) {
   r.stats.reverted = work ? work.order.filter(id => work.items[id].status === 'reverted').length : 0;
   r.stats.workItems = work ? work.order.length : 0;
   r.scoreboard = buildScoreboard(room, consensusReport(room));
+  // El veredicto de las obligaciones caduca igual que el resto: si una mejora se deshace,
+  // la evidencia que la certificaba deja de describir la rama.
+  r.obligations = buildObligations(room);
+  // Y una petición del humano pasa de «en la cola» a «atendida» cuando su tarea entra: eso se
+  // recalcula al leer, no se congela con el veredicto.
+  r.humanReview = humanReviewReport(room);
   return r;
 }
 
@@ -900,6 +924,10 @@ export function exportMarkdown(room) {
     L.push('```');
     if (w.stats.unreviewed) L.push(`\n> Aviso: ${plural(w.stats.unreviewed, 'tarea')} se ${w.stats.unreviewed === 1 ? 'integró' : 'integraron'} sin revisión independiente (está marcado arriba).`);
   }
+  // El resultado generado: obligaciones, encargo contra plan, decisiones sin obra y el veredicto.
+  const obligaciones = r.obligations || obligationsMarkdown(room);
+  if (r.obligations) L.push(...obligationsMarkdown(room));
+  else if (obligaciones?.length) L.push(...obligaciones);
   if (r.scoreboard?.byAgent?.length) {
     L.push('');
     L.push('## Marcador por harness');

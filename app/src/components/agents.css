@@ -7,6 +7,8 @@
 .sharedImprovement p{font-size:13px;line-height:1.65;margin:8px 0;white-space:pre-wrap}
 .sharedImprovement small{display:block;line-height:1.6;color:#586d90;white-space:pre-wrap}
 .deliveryDetails{margin-top:20px;border-top:1px solid #e1e9fa;padding-top:16px}
+/* La captura que el servidor sacó del artefacto: se muestra tal cual, es la prueba. */
+.captureThumb{display:block;max-width:280px;width:100%;height:auto;margin-top:8px;border:1px solid #dce6f8;border-radius:8px;background:#0b1020}
 .deliveryDetails>summary{cursor:pointer;color:#17336a;font-weight:700;padding:10px 0;font-size:14px}
 .deliveryDetails>summary span{display:block;font-size:12px;font-weight:400;color:#667799;margin:5px 0 0 17px}
 .deliveryDetails>summary:focus-visible{outline:3px solid #8bbaff;outline-offset:4px;border-radius:6px}

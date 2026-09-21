@@ -15,6 +15,8 @@ import {
 } from './agenda.mjs';
 import { phaseMsLeft, liveProposals, reviseAuthors, canStart, phaseInputsComplete } from './phases.mjs';
 import { repoSummary, workSummary, workItemForTurn, reviewAssignments, planText } from './work.mjs';
+import { obligationsBrief, buildObligations } from './obligations.mjs';
+import { visualBrief } from './visual.mjs';
 
 import { readRepoFile, workDiff, commitLog } from './repo.mjs';
 
@@ -464,6 +466,9 @@ function computeTurn(room, agentId, { since = 0, record = true } = {}) {
           .map(r => ({ pointId: r.pointId, label: labelOf(r.pointId), choiceId: r.choiceId || null, note: r.note || null })),
         unresolvedPoints: (room.artifacts.synthesis?.unresolved || []).map(u => ({ id: u.id, label: u.label })),
         contested: contestedForTurn(room, report, agentId),
+        // Obligaciones de prueba: lo que el plan AFIRMA, tipado, con lo que nadie cerró todavía.
+        // Sale del plan y de las mediciones del servidor, no de una relectura del verificador.
+        obligations: obligationsBrief(room),
         message: 'Verificación independiente y adversarial: convierte el plan en comprobaciones falsables (qué se mide, cómo y qué se espera). Te eligió el servidor por ser quien MENOS apoyó al ganador: empieza por lo que la síntesis cerró POR AUTORIDAD sin dato nuevo — intenta falsarlo con un umbral medible. Si un punto disputado no es comprobable, dilo en findings. Un fallo de severidad alta fuerza reparación (veredicto "fail" o un finding high).',
         payloadSchema: {
           checks: '[{pointId?, claim, method, expectation}] sin tope práctico: tantas comprobaciones como hayas hecho',
@@ -665,10 +670,15 @@ function reviewTurn(room, agentId) {
   const d = room.phase.data;
   const extra = !!room.settings.extraordinary;
   const diff = workDiff(room);
+  // El juicio visual del conjunto ya integrado: aquí el artefacto está entero y quieto, que es
+  // cuando una mirada vale más.
+  const visual = visualBrief(room, agentId, buildObligations(room).claims);
+  const canJudge = !!visual?.available && (visual.targets || []).length > 0;
   const base = {
     branch: work.branch,
     head: work.head,
     commits: commitLog(room).length,
+    ...(visual ? { visual } : {}),
     diff: diff.length > CAPS.reviewDiffChars
       ? `${diff.slice(0, CAPS.reviewDiffChars)}\n… [${diff.length - CAPS.reviewDiffChars} caracteres omitidos: pide el diff completo con GET /work.diff]`
       : diff,
@@ -702,6 +712,15 @@ function reviewTurn(room, agentId) {
       },
     };
   }
+  if (canJudge) {
+    return {
+      ...base,
+      action: 'submit-judgment',
+      message: 'Ya diste tu veredicto del código. Falta el de lo que SE VE: las capturas del artefacto integrado esperan firma. Un «pasa» solo cierra si no escribiste el artefacto; un «no-pasa» abre bloqueo.'
+        + ' Si algo cambió desde la captura, pide {kind:"capture"} primero.',
+      payloadSchema: [visual.move.payload, '{kind:"capture", payload:{}}'],
+    };
+  }
   return {
     ...base,
     action: 'wait',
@@ -714,6 +733,21 @@ function reviewTurn(room, agentId) {
 function workTurn(room, agentId) {
   const work = workSummary(room);
   const t = workItemForTurn(room, agentId);
+  // El juicio visual se ofrece AQUÍ, en la fase donde existe el artefacto: capturas del commit
+  // actual, las afirmaciones que prometen algo que hay que mirar, y con qué independencia firma
+  // este agente (la calcula el servidor, él no la declara). Sin esto, «no debe verse cutre»
+  // atravesaba toda la sala sin que nadie mirase una imagen.
+  const visual = visualBrief(room, agentId, buildObligations(room).claims);
+  const canJudge = !!visual?.available && (visual.targets || []).length > 0;
+  const judgeTurn = (extra = {}) => ({
+    ...base,
+    action: 'submit-judgment',
+    visual,
+    message: 'Mira las capturas del artefacto y firma lo que veas. Un «pasa» solo cierra la obligación si no escribiste nada del artefacto y citas una captura fresca; un «no-pasa» abre bloqueo aunque venga del autor. Si el artefacto cambió después de mirar, pide {kind:"capture"} y vuelve a mirar: el juicio caduca con la imagen.'
+      + (extra.message ? ` ${extra.message}` : ''),
+    payloadSchema: [visual.move.payload, '{kind:"capture", payload:{}}  → vuelve a capturar el artefacto ahora'] ,
+    ...extra,
+  });
   const base = {
     branch: work.branch,
     verify: {
@@ -726,7 +760,14 @@ function workTurn(room, agentId) {
     tasks: work.items.map(i => ({
       id: i.id, title: i.title, status: i.status, files: i.files, severity: i.severity,
       attempts: i.attempt, byName: i.byName, commit: i.commit || null,
+      // Alcance ya comprobado al crear la tarea y con quién comparte archivos: si la tarea
+      // manda construir algo que ya está, se dice ANTES de reclamarla.
+      scopeCheck: i.scopeCheck || null,
+      blockedBy: i.blockedBy || [],
     })),
+    warnings: work.items
+      .filter(i => i.scopeCheck?.verdict === 'ya-existe' || (i.blockedBy || []).length)
+      .map(i => ({ id: i.id, scope: i.scopeCheck?.verdict || null, because: i.scopeCheck?.because || null, hit: i.scopeCheck?.hit || null, blockedBy: i.blockedBy || [] })),
     ...workRepoAccess(room),
   };
 
@@ -789,8 +830,12 @@ function workTurn(room, agentId) {
       payloadSchema: ['{kind:"progress", payload:{note:"en qué vas"}}  → si sigues trabajando en ella'],
     };
   }
-  // Un observador (o alguien sin presupuesto) no reclama: no se le ofrece lo que no puede hacer.
+  // Un observador (o alguien sin presupuesto) no reclama, pero SÍ puede mirar: el juicio visual
+  // no necesita tocar el repo, y quien no escribió nada es justo el ojo más independiente que la
+  // sala puede ofrecer. Antes de esto, el observador se quedaba mirando cómo la sala entregaba
+  // una promesa visual sin que nadie la mirara.
   if (!canClaim) {
+    if (canJudge) return judgeTurn({ message: 'No trabajas el repo, así que eres el juez más independiente que hay aquí.' });
     return {
       ...base,
       action: 'wait',
@@ -837,6 +882,8 @@ function workTurn(room, agentId) {
   }
 
   const pending = work.pending;
+  // Con las manos libres y algo que mirar, el turno del trabajo no es una espera: es el juicio.
+  if (canJudge) return judgeTurn({ message: 'Mientras el árbol está ocupado, esto sí puedes hacerlo.' });
   return {
     ...base,
     action: 'wait',

@@ -16,7 +16,8 @@ import {
   recoverInterruptedWork, pushBranch, revertItem, reapplyItem, refreshFrozenResult,
   healFrozenResults, setResultRefresher, setVerifyCommand, workspaceDirFor, nameOf,
   roomConfig, roomInputFromConfig, templateFromConfig, deliveryOf,
-  previewEntry, previewFile, previewHeaders,
+  previewEntry, previewFile, previewHeaders, visualState, setServerBase,
+  recordHumanReview, reopenForChanges, humanBrief, humanReviewReport,
 } from '../engine/index.mjs';
 import { hasRecentSignal } from '../engine/recovery.mjs';
 import { LiveHub, startClock } from './live.mjs';
@@ -635,6 +636,33 @@ export function createAgora({ dataDir, appDistDir, clockMs = 1000, memory = unde
       return;
     }
 
+    // ---------------------------------------------------------- evidencia visual
+    // Las capturas que el servidor sacó del artefacto, servidas tal cual (son la prueba) más el
+    // índice de lo que cada una retrata. En solo lectura y sin token: el panel las muestra como
+    // imágenes y un `<img>` no puede llevar cabeceras. Solo se sirve lo que está REGISTRADO en el
+    // índice de la sala: nada de rutas arbitrarias.
+    const vis = p.match(/^\/api\/rooms\/([a-z0-9]{4,12})\/visual(?:\/(.+))?$/i);
+    if (m === 'GET' && vis) {
+      const visRoom = hall.get(vis[1]);
+      if (!visRoom) { sendJSON(res, 404, { ok: false, error: 'not_found', message: `Sala no encontrada: ${vis[1]}` }); return; }
+      const rel = vis[2] ? decodeURIComponent(vis[2]) : '';
+      const state = visualState(visRoom);
+      if (!rel) { sendJSON(res, 200, { ok: true, visual: state }); return; }
+      const shot = (state.shots || []).find(s => s.id === rel);
+      if (!shot?.file) { sendJSON(res, 404, { ok: false, error: 'not_found', message: `Captura desconocida: ${rel}` }); return; }
+      // La carpeta de capturas está registrada en el propio índice; solo se sirve un archivo de
+      // dentro de ella, y solo si es una toma registrada (nada de rutas arbitrarias).
+      const base = state.dir ? path.resolve(state.dir) : null;
+      const abs = base && shot.file ? path.resolve(base, path.basename(shot.file)) : null;
+      if (!abs || !abs.startsWith(base + path.sep)) {
+        sendJSON(res, 403, { ok: false, error: 'forbidden', message: 'La captura no vive en la carpeta de capturas de la sala.' });
+        return;
+      }
+      try { send(res, 200, fs.readFileSync(abs), 'image/png'); }
+      catch { sendJSON(res, 404, { ok: false, error: 'not_found', message: `El archivo de la captura ${rel} ya no está en disco.` }); }
+      return;
+    }
+
     // ---------------------------------------------------------- sala
     const api = p.match(/^\/api\/rooms\/([a-z0-9]{4,12})(\/[a-z.]+)?$/i);
     if (!api) { sendJSON(res, 404, { ok: false, error: 'not_found', message: 'Ruta desconocida. Empieza en / o /manual' }); return; }
@@ -790,13 +818,19 @@ export function createAgora({ dataDir, appDistDir, clockMs = 1000, memory = unde
 
     if (m === 'GET' && sub === '/result') {
       if (room.status !== 'closed') {
+        // Una sala reabierta por el humano no vuelve a parecer «sin resultado»: se sirve la última
+        // entrega congelada, con lo que el humano pidió, para que quien reentre sepa por qué trabaja.
+        const reabierta = room.result && (room.artifacts.humanRounds || 0) > 0
+          ? { by: 'humano', requests: humanReviewReport(room)?.open || [] }
+          : null;
         sendJSON(res, 200, {
           ok: true, closed: false, phase: room.phase.name,
           deadlineInSec: Math.max(0, Math.round((room.phase.deadline - Date.now()) / 1000)),
+          ...(reabierta ? { reopened: reabierta, previous: room.result } : null),
         });
         return;
       }
-      sendJSON(res, 200, { ok: true, closed: true, result: room.result });
+      sendJSON(res, 200, { ok: true, closed: true, result: room.result, human: humanBrief(room) });
       return;
     }
 
@@ -909,6 +943,29 @@ export function createAgora({ dataDir, appDistDir, clockMs = 1000, memory = unde
         hub.notify(code);
         sendJSON(res, 200, { ok: true, ...out, room: publicRoom(room) });
         return;
+      } else if (b.op === 'human-review') {
+        // El juicio humano, SOLO sobre lo entregado: aprueba la entrega o pide cambios concretos.
+        // No es un comentario al pie — un cambio pedido se convierte en tareas y la sala vuelve a
+        // trabajar sobre ellas (con las capturas de antes y las de después al lado).
+        const out = recordHumanReview(room, b);
+        let reopened = { reopened: false, because: 'aprobado: no hay nada que rehacer' };
+        if (out.canReopen) reopened = await reopenForChanges(room, out.review);
+        refreshFrozenResult(room);
+        hall.persist(room);
+        hub.notify(code);
+        reg.info('room.human-review', {
+          room: code, verdict: out.review.verdict, requests: out.review.requests.length,
+          reopened: !!reopened.reopened, phase: room.phase.name, from: clientOf(req),
+        });
+        sendJSON(res, 200, {
+          ok: true,
+          verdict: out.review.verdict,
+          requests: out.review.requests.map(r => ({ id: r.id, text: r.text, items: r.itemIds }) ),
+          warnings: out.warnings,
+          ...reopened,
+          room: publicRoom(room),
+        });
+        return;
       } else if (b.op === 'reapply') {
         // La vuelta atrás de la vuelta atrás: un botón junto a los datos tiene que poder
         // deshacerse, o un clic equivocado obliga a tocar git a mano.
@@ -965,6 +1022,14 @@ export function createAgora({ dataDir, appDistDir, clockMs = 1000, memory = unde
 
     sendJSON(res, 404, { ok: false, error: 'not_found', message: 'Subruta desconocida' });
   }
+
+  // La base real de captura: cuando el socket abra, este proceso sabe en qué puerto quedó de
+  // verdad. Se registra aquí y no en el arranque de `index.mjs` porque cualquier camino que
+  // escuche (pruebas incluidas) debe capturar su propio artefacto, no el de otro servidor.
+  server.on('listening', () => {
+    const addr = server.address();
+    if (addr && typeof addr === 'object' && addr.port) setServerBase(`http://127.0.0.1:${addr.port}`);
+  });
 
   return {
     server, hall, hub, tournaments, dist, memory: mem,

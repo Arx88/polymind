@@ -212,7 +212,7 @@ export function Room({ code, onChanged }: { code: string; onChanged: () => void 
         </div>
       )}
 
-          {room.status === 'closed' && tab === 'live' && <ResultCard room={room} compactHeader />}
+          {room.status === 'closed' && tab === 'live' && <ResultCard room={room} compactHeader onChanged={refresh} />}
 
           {/* En debate manda el directo: quién actúa, qué falta y qué acaba de pasar.
               El arte del salón se queda para el lobby y para el resultado. */}

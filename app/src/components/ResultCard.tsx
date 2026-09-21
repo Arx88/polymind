@@ -6,10 +6,29 @@ import { LongText } from './LongText';
 import { Tag } from './Ui';
 import { FrameAudit } from './FrameAudit';
 import { DeliverySummary } from './DeliverySummary';
+import { HumanReviewBlock } from './HumanReview';
 import { POINT_STATUS_CLASS, POINT_STATUS_LABEL, SEVERITY_LABEL, WORK_STATUS_LABEL, pct0, dateTime, plural } from '../lib/format';
-import type { Room } from '../lib/types';
+import type { Obligations, Room } from '../lib/types';
 
-export function ResultCard({ room, compactHeader = false }: { room: Room; compactHeader?: boolean }) {
+// El veredicto no lo escribe nadie: lo genera el servidor desde el plan congelado, las tareas y
+// las mediciones que él mismo ejecutó. Aquí solo se muestra, con el color que cada valor merece.
+const VERDICT_LABEL: Record<Obligations['verdict'], string> = {
+  cumplido: 'obligaciones cumplidas',
+  'cumplido-con-pendientes': 'cumplido, con pendientes de juicio',
+  'no-cumplido': 'NO cumplido',
+  'no-verificable': 'no verificable',
+};
+const VERDICT_TONE: Record<Obligations['verdict'], 'green' | 'amber' | 'red' | 'grey'> = {
+  cumplido: 'green',
+  'cumplido-con-pendientes': 'amber',
+  'no-cumplido': 'red',
+  'no-verificable': 'grey',
+};
+const CLAIM_TYPE_LABEL: Record<string, string> = {
+  executable: 'medible', juicio: 'juicio', cifra: 'cifra de diseño', 'sin-clasificar': 'sin clasificar',
+};
+
+export function ResultCard({ room, compactHeader = false, onChanged }: { room: Room; compactHeader?: boolean; onChanged?: () => void }) {
   const result = room.result;
   if (!result) return null;
 
@@ -26,6 +45,8 @@ export function ResultCard({ room, compactHeader = false }: { room: Room; compac
   return (
     <div className="resultCard">
       <DeliverySummary room={room} />
+      {/* El humano cierra el ciclo: sobre la entrega congelada, aprueba o pide cambios concretos. */}
+      <HumanReviewBlock room={room} onChanged={onChanged} />
       {!compactHeader && <>
       <h3><Icon name="check" size={18} strokeWidth={3} /> Resultado congelado</h3>
       <div style={{ marginTop: 10 }}>
@@ -58,6 +79,237 @@ export function ResultCard({ room, compactHeader = false }: { room: Room; compac
         </a>
       </div>
       <LongText className="final" text={result.final} lines={12} label="el plan final" />
+
+      {result.obligations && (
+        <section className="obligations">
+          <div className="row wrap" style={{ marginTop: 18, gap: 8 }}>
+            <b className="resultSectionTitle" style={{ marginTop: 0 }}>
+              <span className="sectionIcon"><Icon name="check" size={20} /></span>
+              Obligaciones de prueba
+            </b>
+            <span className="spacer" />
+            <Tag tone={VERDICT_TONE[result.obligations.verdict]}>{VERDICT_LABEL[result.obligations.verdict]}</Tag>
+          </div>
+          <p className="tiny">
+            Generadas por el servidor desde el plan congelado, las tareas y las mediciones que él mismo ejecutó.
+            Una afirmación sin evidencia no se cuenta como cumplida por mayoría: {result.obligations.note}
+          </p>
+          <div className="row wrap" style={{ marginTop: 6, gap: 8 }}>
+            <Tag tone="grey">{result.obligations.counts.ejecutables} medibles</Tag>
+            {result.obligations.counts.juicios > 0 && <Tag tone="grey">{result.obligations.counts.juicios} de juicio</Tag>}
+            {result.obligations.counts.cifras > 0 && <Tag tone="grey">{result.obligations.counts.cifras} cifras de diseño</Tag>}
+            <Tag tone={result.obligations.counts.medidas > 0 ? 'green' : 'grey'}>{result.obligations.counts.medidas} medidas por el servidor</Tag>
+            {result.obligations.counts.sinEvidencia > 0 && <Tag tone="red">{result.obligations.counts.sinEvidencia} sin evidencia</Tag>}
+            {result.obligations.counts.sinJuez > 0 && <Tag tone="amber">{result.obligations.counts.sinJuez} sin juez</Tag>}
+            {(result.obligations.counts.juzgadas || 0) > 0 && <Tag tone="green">{result.obligations.counts.juzgadas} juzgadas sobre captura fresca</Tag>}
+            {(result.obligations.counts.contradichas || 0) > 0 && <Tag tone="red">{result.obligations.counts.contradichas} contradichas al mirar</Tag>}
+            {(result.obligations.counts.capturas || 0) > 0 && <Tag tone="grey">{result.obligations.counts.capturas} capturas del artefacto</Tag>}
+            {(result.obligations.counts.vision || 0) > 0 && (
+              <Tag tone={(result.obligations.counts.sinFirmar || 0) > 0 ? 'red' : 'green'}>
+                {result.obligations.counts.vision} con visión declarada
+                {(result.obligations.counts.sinFirmar || 0) > 0 ? ` · ${result.obligations.counts.sinFirmar} firmas sin poner` : ' · todos firmaron'}
+              </Tag>
+            )}
+            {result.obligations.evidence.total > 0 && (
+              <Tag tone="grey">
+                {plural(result.obligations.evidence.total, 'medición')} ·
+                {' '}{result.obligations.evidence.frescas} frescas
+                {result.obligations.evidence.caducas > 0 ? `, ${result.obligations.evidence.caducas} caducadas` : ''}
+              </Tag>
+            )}
+          </div>
+
+          {result.obligations.ask.clauses.length > 0 && result.obligations.ask.uncovered.length > 0 && (
+            <>
+              <b style={{ fontSize: 13, display: 'block', marginTop: 12 }}>
+                Cláusulas de tu encargo que no aparecen en el plan ni en el trabajo
+              </b>
+              <p className="tiny">Comparación mecánica de la tarea que escribiste con lo que la sala entregó.</p>
+              {result.obligations.ask.uncovered.map(entry => (
+                <div className="agentRow" key={entry.clause}>
+                  <Tag tone="red">sin cobertura</Tag>
+                  <div className="who"><small style={{ whiteSpace: 'normal' }}>{entry.clause}</small></div>
+                </div>
+              ))}
+            </>
+          )}
+
+          {result.obligations.decisions.unmaterialized.length > 0 && (
+            <>
+              <b style={{ fontSize: 13, display: 'block', marginTop: 12 }}>
+                Decisiones votadas que ninguna tarea recogió
+              </b>
+              {result.obligations.decisions.unmaterialized.map(d => (
+                <div className="agentRow" key={d.title}>
+                  <Tag tone="amber">sin obra</Tag>
+                  <div className="who">
+                    <small style={{ whiteSpace: 'normal' }}>{d.title}</small>
+                    <small style={{ whiteSpace: 'normal' }}>{d.reason}</small>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+
+          {result.obligations.visual && (
+            <details className="deliveryDetails" open={result.obligations.visual.shots.length > 0 && result.obligations.visual.judgments.length > 0}>
+              <summary>
+                Lo que se ve: capturas y juicios
+                <span>
+                  {result.obligations.visual.shots.length} capturas
+                  {result.obligations.visual.judgments.length ? ` · ${result.obligations.visual.judgments.length} juicios` : ' · sin juez'}
+                </span>
+              </summary>
+              <p className="tiny">
+                Las sacó el servidor del artefacto con un navegador headless, atadas al commit que retratan:
+                cuando la rama se mueve, la captura y el juicio que la citaba caducan solos.
+                {' '}{result.obligations.visual.note}
+              </p>
+              {result.obligations.visual.notTested && (
+                <div className="agentRow">
+                  <Tag tone="amber">no comprobado</Tag>
+                  <div className="who"><small style={{ whiteSpace: 'normal' }}>{result.obligations.visual.notTested}</small></div>
+                </div>
+              )}
+              {result.obligations.visual.shots.map(shot => (
+                <div className="agentRow" key={shot.id}>
+                  <Tag tone={shot.freshness === 'fresca' ? 'green' : shot.freshness === 'negra' || shot.error ? 'red' : 'amber'}>
+                    {shot.freshness}
+                  </Tag>
+                  <div className="who">
+                    <small style={{ whiteSpace: 'normal' }}>{shot.label}</small>
+                    <small style={{ whiteSpace: 'normal' }}>
+                      {shot.hash ? `huella ${shot.hash.slice(0, 18)} ` : ''}
+                      {shot.brightness !== null ? `· luminancia ${shot.brightness}/255, ${shot.alive}% de píxeles con contenido ` : ''}
+                      {shot.blank ? '· imagen negra: NO cuenta como evidencia ' : ''}
+                      {shot.error ? `· falló: ${shot.error}` : ''}
+                    </small>
+                    {shot.freshness !== 'fallida' && (
+                      <a href={shot.url} target="_blank" rel="noreferrer">
+                        <img className="captureThumb" src={shot.url} alt={shot.label} loading="lazy" />
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {(result.obligations.visual.vision?.seers || []).length > 0 && (
+                <>
+                  <b style={{ fontSize: 13, display: 'block', marginTop: 10 }}>Quién tenía que mirar (visión declarada)</b>
+                  {result.obligations.visual.vision!.seers.map(seer => (
+                    <div className="agentRow" key={seer.name}>
+                      <Tag tone={seer.pending.length ? 'red' : 'green'}>
+                        {seer.pending.length ? `${seer.pending.length} sin firmar` : 'firmó todo'}
+                      </Tag>
+                      <div className="who">
+                        <small style={{ whiteSpace: 'normal' }}>{seer.name}{seer.harness ? ` (${seer.harness}${seer.model ? ` · ${seer.model}` : ''})` : ''}</small>
+                        <small style={{ whiteSpace: 'normal' }}>
+                          {seer.pending.length ? `debe ${seer.pending.join(', ')}` : 'al día'}
+                        </small>
+                      </div>
+                    </div>
+                  ))}
+                  <p className="tiny">{result.obligations.visual.vision!.note}</p>
+                </>
+              )}
+              {(result.obligations.visual.vision?.seers || []).length === 0 && result.obligations.visual.vision && (
+                <p className="tiny">{result.obligations.visual.vision.note}</p>
+              )}
+              {result.obligations.visual.judgments.map(j => (
+                <div className="agentRow" key={j.id}>
+                  <Tag tone={j.verdict === 'pasa' ? (j.closes ? 'green' : 'amber') : j.verdict === 'no-pasa' ? 'red' : 'amber'}>
+                    {j.verdict}{j.closes ? ' · cierra' : ''}
+                  </Tag>
+                  <div className="who">
+                    <small style={{ whiteSpace: 'normal' }}>
+                      {j.judge} ({j.independence}) sobre {j.claimId}
+                      {j.visionDeclared === false ? ' · no declaró visión' : ''}
+                    </small>
+                    <small style={{ whiteSpace: 'normal' }}>
+                      {j.captures.length ? `${j.captures.map(c => `${c.id}:${c.freshness}`).join(', ')} · ` : 'sin captura citada · '}
+                      {j.reason || 'sin motivo'}
+                    </small>
+                  </div>
+                </div>
+              ))}
+            </details>
+          )}
+
+          {result.obligations.blockers.length > 0 && (
+            <details className="deliveryDetails">
+              <summary>Lo que quedó sin cerrar <span>{result.obligations.blockers.length} obligaciones</span></summary>
+              {result.obligations.blockers.map((b, i) => (
+                <div className="agentRow" key={`${b.kind}-${i}`}>
+                  <Tag tone="red">{b.kind}</Tag>
+                  <div className="who">
+                    <small style={{ whiteSpace: 'normal' }}>{b.text}</small>
+                    <small style={{ whiteSpace: 'normal' }}>{b.because}</small>
+                  </div>
+                </div>
+              ))}
+            </details>
+          )}
+
+          <details className="deliveryDetails">
+            <summary>
+              Las {result.obligations.counts.total} afirmaciones del plan, una por una
+              <span>{result.obligations.counts.conDueno} con dueño · {result.obligations.counts.medidas} medidas</span>
+            </summary>
+            {result.obligations.claims.map(claim => (
+              <div className="agentRow" key={claim.id}>
+                <Tag tone={claim.type === 'juicio' ? 'purple' : claim.type === 'cifra' ? 'grey' : 'blue'}>
+                  {CLAIM_TYPE_LABEL[claim.type] || claim.type}
+                </Tag>
+                <div className="who">
+                  <small style={{ whiteSpace: 'normal' }}>{claim.text}</small>
+                  <small style={{ whiteSpace: 'normal' }}>
+                    {claim.ownerId ? `tarea ${claim.ownerId}` : 'sin tarea que la recoja'}
+                    {claim.evidenceHash ? ` · medición ${claim.evidenceHash.slice(0, 10)} (${claim.evidenceStatus})` : ''}
+                    {claim.judge?.length ? ` · juzgada por ${claim.judge.join(', ')}` : ''}
+                    {' · '}{claim.statusBecause}
+                  </small>
+                </div>
+              </div>
+            ))}
+          </details>
+
+          {result.obligations.evidence.entries.length > 0 && (
+            <details className="deliveryDetails">
+              <summary>
+                Mediciones ejecutadas por el servidor
+                <span>{result.obligations.evidence.frescas} frescas · {result.obligations.evidence.provisionales} provisionales · {result.obligations.evidence.caducas} caducadas</span>
+              </summary>
+              <p className="tiny">
+                Cada medición lleva su comando, su código de salida, el commit medido y una huella: la misma medición
+                sobre el mismo árbol no se repite, y deja de valer cuando el árbol cambia.
+              </p>
+              {result.obligations.evidence.entries.map(entry => (
+                <div className="agentRow" key={entry.id}>
+                  <Tag tone={entry.ok === true ? 'green' : entry.ok === false ? 'red' : 'amber'}>
+                    {entry.exitCode === null ? entry.kind : `código ${entry.exitCode}`}
+                  </Tag>
+                  <div className="who">
+                    <b className="mono" style={{ fontSize: 12 }}>{entry.command}</b>
+                    <small>
+                      <span className="mono">{entry.hash.slice(0, 10)}</span>
+                      {entry.commit ? ` · commit ${entry.commit}` : ''}
+                      {entry.itemId ? ` · tarea ${entry.itemId}` : ''}
+                      {` · ${entry.status}`}{entry.uses > 1 ? ` · reutilizada ${entry.uses}×` : ''}
+                    </small>
+                  </div>
+                </div>
+              ))}
+            </details>
+          )}
+
+          {result.obligations.vacuous.length > 0 && (
+            <p className="tiny">
+              {plural(result.obligations.vacuous.length, 'comprobación')} propuesta{result.obligations.vacuous.length === 1 ? '' : 's'} cuya
+              expectativa no se puede falsar: se marca en vez de engordar el recuento verde.
+            </p>
+          )}
+          <p className="tiny">{result.obligations.worlds.note}</p>
+        </section>
+      )}
 
       {result.checks.length > 0 && (
         <>
@@ -274,7 +526,9 @@ export function ResultCard({ room, compactHeader = false }: { room: Room; compac
           <b style={{ fontSize: 14, display: 'block', marginTop: 18 }}>Trabajo sobre el repositorio</b>
           <div className="row wrap" style={{ marginTop: 8, gap: 8 }}>
             <Tag tone="purple"><Icon name="branch" size={13} /> {result.work.branch}</Tag>
-            <Tag tone="grey">base <span className="mono">{result.work.baseCommit.slice(0, 10)}</span></Tag>
+            {/* Un `baseCommit` ausente tumbaba la tarjeta ENTERA: la sala cerraba bien y el panel
+                no mostraba nada. Se pinta lo que hay. */}
+            {result.work.baseCommit && <Tag tone="grey">base <span className="mono">{result.work.baseCommit.slice(0, 10)}</span></Tag>}
             <Tag tone="green">{result.work.stats.integrated}/{result.work.stats.items} mejoras integradas</Tag>
             {result.work.stats.reverted > 0 && <Tag tone="purple">{plural(result.work.stats.reverted, 'deshecha')} por el humano</Tag>}
             <Tag tone="blue">diff {plural(result.work.stats.files, 'archivo')} +{result.work.stats.insertions}/-{result.work.stats.deletions}</Tag>

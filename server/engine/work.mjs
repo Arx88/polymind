@@ -21,8 +21,10 @@ import { log, nameOf, activeAgents, proposalOf } from './state.mjs';
 import { consensusReport, normalizeAgenda } from './agenda.mjs';
 import {
   stagePatch, unstagePatch, commitStaged, runVerify, workStats, commitLog, repoIndex,
-  baselineInBackground, revertCommit, commitFiles,
+  searchRepo, baselineInBackground, revertCommit, commitFiles,
 } from './repo.mjs';
+import { claimRefs, isCreating, scopeVerdict, fileConflicts } from './ledger.mjs';
+import { captureInBackground } from './visual.mjs';
 
 // Un único gancho para que el trabajo asíncrono (verificación) persista y avise
 // al panel: lo instala el transporte HTTP al arrancar.
@@ -408,7 +410,62 @@ export function startWork(room, winnerId) {
   }
   work.skippedByCap = approved.length - chosen.length;
   room.work = work;
+  annotateItems(room, work.order.map(id => work.items[id]));
+  // La primera captura del artefacto, antes de que nadie lo toque: es la referencia de «cómo
+  // estaba» que hace legible el juicio posterior, y deja el material listo cuando la fase de
+  // trabajo abre. Va en segundo plano: el trabajo no espera a un navegador.
+  captureInBackground(room, { reason: 'inicio del trabajo' });
   return work;
+}
+
+// ---------------------------------------------------------------- alcance y conflictos
+// Antes de que nadie gaste un turno, dos preguntas que se contestan con el repo delante:
+//   · ¿la tarea manda construir algo que YA está? Salieron de dos fallos reales: una sala votó
+//     «añadir src/ship/hull.js» cuando ese archivo ya estaba integrado y pasaba 50/50, y otra
+//     gastó un turno en un artefacto prometido por el plan que ya existía.
+//   · ¿pisa archivos que otra tarea tiene en vuelo? Tres parches tocaron el mismo contrato de URL
+//     y dos el mismo archivo: se pagó en rebases manuales que nadie había pedido.
+// El servidor AVISA y publica; no le quita la tarea a nadie ni reordena la cola.
+export function annotateItems(room, items = []) {
+  const creadas = (items || []).filter(Boolean);
+  if (!creadas.length || !room.work) return [];
+  const index = room.repo ? repoIndex(room) : null;
+  const existentes = index ? index.files : [];
+  const todos = room.work.order.map(id => room.work.items[id]).filter(Boolean);
+  const notas = [];
+  for (const item of creadas) {
+    const refs = claimRefs(`${item.title || ''} ${item.claim || ''} ${(item.files || []).join(' ')}`);
+    const rutas = [...new Set([...(item.files || []), ...refs.files])].slice(0, 6);
+    const simbolos = [];
+    if (room.repo) {
+      for (const sym of refs.symbols.slice(0, 2)) {
+        if (sym.length < 4 || /[\/.]/.test(sym)) continue;
+        try {
+          const hit = searchRepo(room, sym, { max: 3 });
+          const first = (hit.matches || [])[0];
+          if (first) simbolos.push({ symbol: sym, file: first.path, line: first.line });
+        } catch { /* una búsqueda que falla no bloquea la tarea */ }
+      }
+    }
+    const scope = scopeVerdict({
+      refs: { ...refs, files: rutas },
+      existingPaths: existentes,
+      existingSymbols: simbolos,
+      creating: isCreating(`${item.title || ''} ${item.claim || ''}`),
+    });
+    item.scopeCheck = { ...scope, at: now() };
+    const choques = fileConflicts(todos, item);
+    item.blockedBy = choques.map(c => c.id);
+    item.fileConflicts = choques.map(c => ({ id: c.id, files: c.files, status: c.status }));
+    if (scope.verdict === 'ya-existe') {
+      notas.push(`Tarea ${item.id}: ${scope.because}${scope.hit ? ` (${scope.hit})` : ''}. Es verificar, no construir.`);
+    }
+    if (choques.length) {
+      notas.push(`Tarea ${item.id}: comparte ${choques.map(c => c.files.join(', ')).join('; ')} con ${choques.map(c => c.id).join(', ')} — no pueden estar en vuelo a la vez.`);
+    }
+  }
+  for (const n of notas) log(room, null, 'work', n);
+  return notas;
 }
 
 // Vuelta a trabajar en una ronda posterior: las mejoras aprobadas en ESTA ronda que aún no
@@ -462,6 +519,7 @@ export function ensureWorkItems(room, { max = 0 } = {}) {
   }
   work.skippedByCap = Math.max(work.skippedByCap || 0, pendientes.length - creadas.length);
   work.approvedTotal = workFrom(room).length;
+  annotateItems(room, creadas);
   return creadas;
 }
 
@@ -469,6 +527,13 @@ export function workItem(room, ref) {
   const id = clampStr(ref, 20);
   if (!id) return null;
   return room.work?.items?.[id] || null;
+}
+
+// Las tareas que bloquean a esta AHORA MISMO (la otra está en vuelo). Lo usa el turno para no
+// ofrecer un reclamo que el servidor va a rechazar: un aviso es información, un bucle no.
+export function liveBlockers(room, item) {
+  if (!item) return [];
+  return fileConflicts(openItems(room), item).filter(c => c.inFlight);
 }
 
 export function openItems(room) {
@@ -519,6 +584,16 @@ export function claimItem(room, agentId, payload = {}) {
   if (item.status !== 'open') {
     throw new DebateError('bad_payload',
       `La tarea ${item.id} está «${item.status}»${item.claimant ? ` (la tiene ${nameOf(room, item.claimant)})` : ''}. Libres: ${open.filter(i => i.status === 'open').map(i => i.id).join(', ') || 'ninguna'}.`);
+  }
+  // Dos tareas que pisan los mismos archivos, a la vez, en el mismo árbol: el servidor lo impide
+  // mientras la otra esté EN VUELO (reclamada, en revisión o verificándose). Serializar cuesta un
+  // turno; rebasar cuesta más y deja la rama en un estado que nadie pidió.
+  const bloqueos = fileConflicts(openItems(room), item).filter(c => c.inFlight && c.status !== 'open');
+  if (bloqueos.length) {
+    throw new DebateError('busy',
+      `La tarea ${item.id} comparte ${bloqueos.map(c => c.files.join(', ')).join('; ')} con ` +
+      `${bloqueos.map(c => `${c.id} (${c.status})`).join(', ')}: el mismo archivo no se trabaja en paralelo. ` +
+      `Reclama otra${open.filter(i => i.id !== item.id && i.status === 'open').length ? ` (libres: ${open.filter(i => i.id !== item.id && i.status === 'open').map(i => i.id).join(', ')})` : ''} o espera a que se integre.`);
   }
   item.status = 'claimed';
   item.claimant = agentId;
@@ -682,7 +757,7 @@ export function reviewPatch(room, agentId, payload = {}) {
 }
 
 async function verifyThenIntegrate(room, item, patch) {
-  const out = await runVerify(room);
+  const out = await runVerify(room, { kind: 'patch', itemId: item.id });
   if (room.status === 'closed' || item.status !== 'verifying' || room.work?.pending !== patch.id) return null;
   room.work.verifyRuns += 1;
   const baselineFailed = room.repo?.baseline?.status === 'done' && room.repo.baseline.ran && !room.repo.baseline.ok;
@@ -748,6 +823,10 @@ function integrate(room, item, patch, verify, extra = {}) {
   work.head = room.repo?.head || work.head;
   if (extra.preExisting) item.verifyPreExisting = true;
   if (!patch.review) item.unreviewed = true;
+  // Con el último ítem dentro, el artefacto queda quieto en su commit final: se vuelve a retratar
+  // para que el juicio visual se firme sobre lo que de verdad se entrega, no sobre una versión a
+  // mitad de camino. La captura del inicio y la del final son el antes y el después.
+  if (workIsFinished(room)) captureInBackground(room, { reason: 'trabajo terminado' });
   log(room, null, 'work',
     `Tarea ${item.id} integrada${commit.sha ? ` en ${String(commit.sha).slice(0, 8)}` : commit.ok ? '' : ` (el commit falló: ${gist(commit.error || '', 80)})`}` +
     `${verify?.ran ? ` · verificación ${verify.exitCode === 0 ? 'en verde' : `en rojo (${verify.exitCode})`}` : ' · sin verificación'}.`);
@@ -1009,7 +1088,7 @@ export function reapplyItem(room, { itemId = null, reason = '', by = null } = {}
   changed(room);
 
   if (item.reapplied.verify) {
-    const p = verifyAfterChange(room, item, item.reapplied, 'volver a aplicar');
+    const p = verifyAfterChange(room, item, item.reapplied, 'volver a aplicar', 'reapply');
     room.__pendingRevertVerify = p;
     p.catch(() => null).finally(() => {
       if (room.__pendingRevertVerify === p) delete room.__pendingRevertVerify;
@@ -1019,8 +1098,8 @@ export function reapplyItem(room, { itemId = null, reason = '', by = null } = {}
 }
 
 // Ni deshacer ni volver a aplicar eximen de comprobar: si la suite queda en rojo, se dice.
-async function verifyAfterChange(room, item, holder, verb) {
-  const out = await runVerify(room);
+async function verifyAfterChange(room, item, holder, verb, kind = 'verify') {
+  const out = await runVerify(room, { kind, itemId: item.id });
   if (!holder) return null;
   holder.verify = {
     status: 'done', ran: !!out.ran, ok: out.ok ?? null, exitCode: out.exitCode ?? null,
@@ -1038,7 +1117,7 @@ async function verifyAfterChange(room, item, holder, verb) {
   return out;
 }
 
-const verifyAfterRevert = (room, item) => verifyAfterChange(room, item, item.revert, 'deshacer');
+const verifyAfterRevert = (room, item) => verifyAfterChange(room, item, item.revert, 'deshacer', 'revert');
 
 // ---------------------------------------------------------------- reanudación
 // Lo único que no sobrevive a un reinicio es lo que corre en memoria: el sondeo de
@@ -1327,7 +1406,9 @@ export function improvementsFromReview(room, { round = 1 } = {}) {
   return nuevas;
 }
 
-export function addReviewItems(room, sugerencias) {
+// `from` distingue quién pidió la tarea: la revisión posterior (un agente mirando el diff) o el
+// humano revisando la entrega ya congelada. La misma mecánica, dos orígenes que el acta separa.
+export function addReviewItems(room, sugerencias, { from = 'review' } = {}) {
   const work = room.work;
   const creadas = [];
   for (const s of sugerencias) {
@@ -1338,14 +1419,19 @@ export function addReviewItems(room, sugerencias) {
       share: 0, voters: 0, status: 'open', claimant: null, claimedAt: null,
       attempts: 0, verifyFailures: 0, patches: [], review: null, verify: null, commit: null,
       reviewer: null, lastError: null, note: null, startedAt: null, finishedAt: null,
-      from: 'review', reviewOf: s.de || null, by: s.by || null,
+      from, reviewOf: s.de || null, by: s.by || null,
     };
     work.items[id] = item;
     work.order.push(id);
     creadas.push(item);
     log(room, null, 'work',
-      `Nueva tarea ${id} desde la revisión: «${gist(item.title, 90)}»${item.files.length ? ` (${item.files.join(', ')})` : ''}.`);
+      from === 'humano'
+        ? `Nueva tarea ${id} desde la revisión humana: «${gist(item.title, 90)}».`
+        : `Nueva tarea ${id} desde la revisión: «${gist(item.title, 90)}»${item.files.length ? ` (${item.files.join(', ')})` : ''}.`);
   }
+  // Una propuesta de la revisión también puede pedir algo que ya existe (el caso real: «añade
+  // hull.js» con hull.js integrado y verde). Se comprueba aquí, no después de un turno.
+  annotateItems(room, creadas);
   return creadas;
 }
 
@@ -1437,6 +1523,13 @@ export function workSummary(room) {
       reviewerName: i.reviewer ? nameOf(room, i.reviewer) : (i.review?.by ? nameOf(room, i.review.by) : null),
       commit: i.commit,
       unreviewed: !!i.unreviewed,
+      // Alcance comprobado contra el repo al nacer la tarea, y con qué otra tarea comparte
+      // archivos. Se publica con la tarea, no en una nota aparte: es información para trabajar.
+      scopeCheck: i.scopeCheck
+        ? { verdict: i.scopeCheck.verdict, because: i.scopeCheck.because, hit: i.scopeCheck.hit || null }
+        : null,
+      blockedBy: i.blockedBy || [],
+      fileConflicts: i.fileConflicts || [],
       // Deshacer es una decisión del humano, no del debate: viaja con el motivo y con
       // la verificación posterior, para que el panel no tenga que interpretarlo.
       revert: i.revert

@@ -45,6 +45,10 @@ export function createRoom(input = {}) {
       checks: [],
       ruleProposals: [],
       ledger: [],              // coste por movimiento, para métricas reales
+      // Libro mayor de la evidencia: cada medición que hace el SERVIDOR (comando, código de
+      // salida, commit, huella) y cada juicio que hace otro agente. Es lo que permite que el
+      // resultado se genere desde lo ejecutado en vez de desde la prosa del plan.
+      evidence: [],
       findings: [],            // hallazgos de la auditoría del repo (trabajo conjunto)
       // Disenso protegido: cada vez que un autor mueve una posición de la agenda se
       // registra aquí (con o sin la evidencia que lo justifica). Es lo que permite
@@ -145,7 +149,7 @@ export function migrate(room) {
   room.createdBy = room.createdBy || 'humano';
   room.artifacts = room.artifacts || {};
   for (const key of ['proposals', 'critiques']) room.artifacts[key] = room.artifacts[key] || {};
-  for (const key of ['objections', 'checks', 'ruleProposals', 'ledger', 'findings', 'drift']) room.artifacts[key] = room.artifacts[key] || [];
+  for (const key of ['objections', 'checks', 'ruleProposals', 'ledger', 'findings', 'drift', 'evidence']) room.artifacts[key] = room.artifacts[key] || [];
   room.repo = room.repo || null;
   room.work = room.work || null;
   for (const pr of Object.values(room.artifacts.proposals)) {

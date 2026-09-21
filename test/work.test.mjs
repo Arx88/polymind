@@ -493,6 +493,19 @@ test('trabajo: parche aceptado → revisión de otro agente → verificación �
   assert.match(md, /## Trabajo conjunto sobre el repositorio/);
   assert.ok(md.includes(w.branch), 'el export dice en qué rama está el trabajo');
 
+  // Obligaciones de prueba: el resultado se GENERA desde las mediciones del servidor, no desde
+  // la prosa del plan. La verificación de la tarea queda como evidencia con su comando y su
+  // código de salida, y el acta lleva el veredicto en vez de contar solo lo que salió bien.
+  const obl = room.result.obligations;
+  assert.ok(obl, 'el acta trae el libro de obligaciones');
+  assert.ok(obl.evidence.total >= 1, 'la verificación del servidor queda registrada como evidencia');
+  assert.ok(obl.evidence.entries.some(e => e.command === 'node check.mjs' && e.exitCode === 0),
+    'con su comando y su código de salida');
+  assert.ok(obl.claims.length >= 1, 'y las afirmaciones del plan están tipadas');
+  assert.ok(['cumplido', 'cumplido-con-pendientes', 'no-cumplido', 'no-verificable'].includes(obl.verdict));
+  assert.match(md, /## Obligaciones de prueba \(generadas desde los artefactos\)/);
+  assert.match(md, /Veredicto: (CUMPLIDO|CUMPLIDO CON PENDIENTES|NO CUMPLIDO|NO VERIFICABLE)/);
+
   // Marcador por harness: sale del registro, no de una impresión.
   const board = room.result.scoreboard;
   assert.equal(board.byAgent.length, 3, 'una fila por agente');

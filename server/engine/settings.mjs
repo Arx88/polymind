@@ -57,6 +57,17 @@ export const DEFAULT_SETTINGS = {
     repair: 6 * 60_000, synthesis: 6 * 60_000, verify: 5 * 60_000, work: 30 * 60_000,
     review: 8 * 60_000,
   },
+  // Evidencia visual: el servidor abre el artefacto en un navegador headless y guarda capturas
+  // con hash atadas al commit, para que «no debe verse cutre» tenga imagen y firma. Apagarlo deja
+  // esas afirmaciones como `sin-captura` en el resultado, nunca como aprobadas.
+  visual: {
+    enabled: true,
+    viewport: { width: 1280, height: 720 },
+    settleMs: 1500,
+    // Tomas declaradas: [{id, label, url}] con url relativa a la vista previa (?t=12, index.html…)
+    // o absoluta. Vacío = la vista principal del artefacto, tal cual la carga el panel.
+    shots: [],
+  },
   // Trabajo conjunto sobre el repo (solo si la sala trae repo). El servidor aplica
   // parches y ejecuta ESTE comando; los agentes nunca ejecutan nada por su cuenta.
   repo: {
@@ -203,8 +214,11 @@ export const MOVE_KINDS = {
   repair: ['revision', 'pass'],
   synthesis: ['synthesis'],
   verify: ['verification', 'pass'],
-  work: ['claim-item', 'submit-patch', 'review-patch', 'progress', 'pass'],
-  review: ['recheck', 'pass'],
+  // El juicio visual vive donde vive el artefacto: en el trabajo se captura lo construido y se
+  // firma lo que se ve; en la revisión posterior se juzga el conjunto ya integrado. `capture` no
+  // captura nada por sí mismo: le pide al servidor que vuelva a retratar el árbol AHORA.
+  work: ['claim-item', 'submit-patch', 'review-patch', 'progress', 'judgment', 'capture', 'pass'],
+  review: ['recheck', 'judgment', 'capture', 'pass'],
   closed: [],
 };
 
@@ -276,9 +290,16 @@ export const CAPABILITIES = {
   synthesis: 'Síntesis',
   negotiation: 'Negociación',
   ethics: 'Impacto ético',
+  // Declararla es un COMPROMISO, no un adorno: el servidor entrega las capturas del artefacto a
+  // quien la declara y exige su firma en cada afirmación visual. Un modelo que ve y no firma deja
+  // la obligación abierta y el veredicto no sube.
+  vision: 'Ver imágenes (capturas, renders, diseños)',
 };
 
 export const CAPABILITY_IDS = Object.keys(CAPABILITIES);
+
+// La capacidad que convierte la vista en obligación de juicio.
+export const VISION_CAPABILITY = 'vision';
 
 // La lente solo existe si el propio agente la declaró. No hay rotación ni reparto.
 export function lensFor(role, language = 'es') {
