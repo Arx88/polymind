@@ -26,6 +26,7 @@
     "test:visual": "node --test test/visual.test.mjs",
     "test:human": "node --test test/human.test.mjs",
     "check:visual": "node scripts/check-visual.mjs",
+    "ensure:chromium": "node scripts/ensure-chromium.mjs",
     "test:work": "node --test test/work.test.mjs",
     "test:e2e": "node --test test/sim.mjs",
     "runner": "node server/runner/index.mjs",

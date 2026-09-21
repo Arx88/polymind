@@ -38,6 +38,20 @@ fs.writeFileSync(path.join(FIXTURE, 'index.html'), `<!doctype html>
   window.__listo = true;
 </script></body></html>
 `);
+// Una segunda página: el artefacto se retrata ENTERO, no solo su índice, y una página que no se
+// captura es una página que nadie puede firmar.
+fs.writeFileSync(path.join(FIXTURE, 'tormenta.html'), `<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Tormenta</title></head>
+<body style="margin:0;background:#05070d">
+<canvas id="mar" width="640" height="360" style="width:100vw;height:100vh;display:block"></canvas>
+<script>
+  const c = document.getElementById('mar').getContext('2d');
+  c.fillStyle = '#12203a'; c.fillRect(0, 0, 640, 360);
+  c.fillStyle = '#cfe6ff';
+  for (let i = 0; i < 220; i += 1) { c.fillRect(Math.random() * 640, Math.random() * 360, 2, 6); }
+  window.__listo = true;
+</script></body></html>
+`);
 const git = (...args) => spawnSync('git', args, { cwd: FIXTURE, encoding: 'utf8' });
 git('init', '-q', '-b', 'main');
 git('add', '.');
@@ -96,8 +110,14 @@ const res = await engine.captureRoom(room, { by: ids[2], reason: 'verificación 
 console.log(`captura real: ok=${res.ok} renderer=${res.renderer} ms=${Date.now() - t0}`);
 const visual = engine.visualState(room);
 for (const s of visual.shots) {
-  console.log(`  toma ${s.id}: ${s.stats?.width}x${s.stats?.height} ${s.stats?.bytes ?? s.bytes}B luminancia=${s.stats?.brightness} contraste=${s.stats?.contrast} vivos=${s.stats?.alive}% negra=${s.blank} frescura=${engine.shotFreshness(room, s)}`);
+  console.log(`  toma ${s.id}: página=${s.page} pantalla=${s.viewport?.id} ${s.stats?.width}x${s.stats?.height} ${s.stats?.bytes ?? s.bytes}B luminancia=${s.stats?.brightness} contraste=${s.stats?.contrast} vivos=${s.stats?.alive}% negra=${s.blank} frescura=${engine.shotFreshness(room, s)}`);
 }
+// Dos pantallas y dos páginas: cuatro tomas, y cada una con el tamaño que se pidió (una captura
+// headless no cambia de tamaño sola: si las medidas no coinciden, la pantalla no se aplicó).
+const pantallas = new Set(visual.shots.map(s => `${s.viewport?.id}:${s.stats?.width}x${s.stats?.height}`));
+console.log(`pantallas aplicadas: ${[...pantallas].join(' · ')}`);
+if (pantallas.size !== 2) throw new Error(`se esperaban dos pantallas distintas y hay ${pantallas.size}`);
+if (new Set(visual.shots.map(s => s.page)).size !== 2) throw new Error('no se retrataron las dos páginas del artefacto');
 
 // --- 3. el PNG por HTTP, como lo pide el panel ------------------------------------
 const png = await fetch(`${base}/api/rooms/${room.code}/visual/${visual.shots[0].id}`);

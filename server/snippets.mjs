@@ -286,8 +286,11 @@ falsar (sin comparación ni cifra) no cuenta como evidencia.
 «No debe verse cutre» es una afirmación como cualquier otra, y hasta ahora atravesaba toda la sala
 sin que nadie mirase una imagen. El servidor la resuelve en dos mitades:
 
-1. **Captura.** Abre el artefacto en un navegador headless (la misma página que carga el panel) y
-guarda PNGs con su huella, dimensiones y luminancia medida del archivo, atados al commit. La
+1. **Captura.** Abre el artefacto en un navegador headless (las mismas páginas que carga el panel:
+**todas** las que sirve el proyecto, hasta cuatro) en **cada mundo de pantalla** declarado —por
+defecto escritorio 1280×720 y pantalla pequeña 640×360— y guarda PNGs con su huella, dimensiones y
+luminancia medida del archivo, atados al commit. Cada toma dice qué página y qué pantalla retrata:
+citar \`principal\` cita la toma principal de cada pantalla. La
 primera toma es al empezar el trabajo y la última al integrarse el último ítem, así que hay un
 antes y un después. Si algo cambia después, la captura pasa a **caducada** (y con ella el juicio
 que la citó). Una imagen negra se marca como tal y **no cuenta como evidencia**. Todo esto es

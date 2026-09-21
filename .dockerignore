@@ -1,0 +1,11 @@
+.git
+.gitignore
+data/
+data-*/
+node_modules/
+app/dist/
+dist/
+*.log
+.browsers/
+scripts/.scratch-*.mjs
+.DS_Store

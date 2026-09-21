@@ -35,10 +35,17 @@ const MAX_SHOTS = 12;
 // ---------------------------------------------------------------- configuración
 export const VISUAL_DEFAULTS = {
   enabled: true,                 // se puede apagar por sala (settings.visual.enabled=false)
-  viewport: { width: 1280, height: 720 },
+  // Dos mundos de pantalla por defecto: lo mismo que se mira en un escritorio no se ve igual en
+  // una pantalla pequeña, y una sola toma no lo cuenta. Se pueden declarar más (o menos) con
+  // `settings.visual.viewports`; `settings.visual.viewport` (singular) sigue valiendo y fija uno.
+  viewports: [
+    { id: 'escritorio', width: 1280, height: 720 },
+    { id: 'pantalla-pequena', width: 640, height: 360 },
+  ],
   settleMs: 1_500,               // margen tras `load` para que las animaciones se asienten
   timeoutMs: 45_000,
-  shots: [],                     // [] = la vista principal del artefacto, tal cual
+  shots: [],                     // [] = todas las páginas del artefacto, tal cual
+  maxPages: 4,                   // páginas distintas que se retratan como máximo
 };
 
 // El servidor se anuncia a sí mismo dónde vive: el puerto real puede no ser el pedido (si estaba
@@ -56,37 +63,154 @@ export function captureBase() {
   return serverBase;
 }
 
+// Normaliza la configuración de una sala. `viewport` (singular) manda si está: es la forma vieja
+// de declararlo y no puede dejar de funcionar por haber añadido varias pantallas.
 export function visualConfig(room) {
   const cfg = room?.settings?.visual || {};
+  const viewports = cfg.viewport
+    ? [{ id: 'principal', ...VISUAL_DEFAULTS.viewports[0], ...cfg.viewport }]
+    : (Array.isArray(cfg.viewports) && cfg.viewports.length ? cfg.viewports : VISUAL_DEFAULTS.viewports)
+      .map((v, i) => ({
+        id: clampStr(v?.id || `pantalla-${i + 1}`, 40).replace(/[^\w.-]+/g, '-'),
+        width: Math.max(160, Math.min(3_840, Number(v?.width) || 1280)),
+        height: Math.max(120, Math.min(2_160, Number(v?.height) || 720)),
+      }));
   return {
     ...VISUAL_DEFAULTS,
     ...cfg,
-    viewport: { ...VISUAL_DEFAULTS.viewport, ...(cfg.viewport || {}) },
+    viewports,
+    // Compatibilidad: quien mire `config.viewport` sigue viendo la primera pantalla.
+    viewport: { width: viewports[0].width, height: viewports[0].height },
     shots: Array.isArray(cfg.shots) ? cfg.shots : [],
   };
 }
 
 // ---------------------------------------------------------------- navegador
-export function chromePath() {
-  if (process.env.AGORA_CHROME) return fs.existsSync(process.env.AGORA_CHROME) ? process.env.AGORA_CHROME : null;
-  const candidates = process.platform === 'win32'
+// El motor NO instala navegadores: busca el que haya. Lo que sí hace es buscar en todos los sitios
+// donde un navegador acaba de verdad —el PATH, el directorio que se le diga, el caché de
+// puppeteer/playwright y una carpeta local— para que «no hay navegador» no sea la respuesta cuando
+// sí lo hay a dos carpetas de distancia. Es la diferencia entre una función que existe y una que
+// se usa: un despliegue con Chromium instalado y sin `AGORA_CHROME` no puede quedarse sin capturas.
+const BROWSER_NAMES = [
+  'chrome', 'google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser',
+  'chrome-headless-shell', 'msedge', 'microsoft-edge',
+];
+
+function existsFile(p) {
+  try { return !!p && fs.existsSync(p) && fs.statSync(p).isFile(); } catch { return false; }
+}
+
+// Dentro de una carpeta de navegador instalado, el binario está en una ruta conocida por sistema.
+function insideDir(dir, depth = 0) {
+  if (depth > 3) return null;
+  // Los nombres genéricos valen en cualquier sistema: una carpeta de instalación bajada por
+  // puppeteer se llama `chrome-linux64/chrome` aunque el servidor corra en Windows, y mirar solo
+  // los nombres nativos dejaba esa carpeta invisible.
+  const direct = [
+    'chrome', 'chromium', 'headless_shell', 'chrome-headless-shell', 'chrome.exe', 'msedge.exe',
+    ...(process.platform === 'darwin'
+      ? ['Google Chrome.app/Contents/MacOS/Google Chrome', 'Chromium.app/Contents/MacOS/Chromium', 'Microsoft Edge.app/Contents/MacOS/Microsoft Edge']
+      : []),
+  ];
+  for (const name of direct) {
+    const p = path.join(dir, name);
+    if (existsFile(p)) return p;
+  }
+  let entries = [];
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return null; }
+  for (const e of entries) {
+    if (!e.isDirectory()) continue;
+    // `chrome-linux64/chrome`, `chrome-linux/chrome`, `chrome-1234/chrome-linux64/chrome`…
+    if (!/chrome|chromium|msedge|headless/i.test(e.name)) continue;
+    const hit = insideDir(path.join(dir, e.name), depth + 1);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+// De dónde puede salir un navegador, en orden de confianza: lo que el operador dijo, lo que el
+// sistema tiene instalado, y por último los cachés que dejan puppeteer/playwright.
+function searchTiers() {
+  const pathDirs = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
+  const system = process.platform === 'win32'
     ? [
-      'C:/Program Files/Google/Chrome/Application/chrome.exe',
-      'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
-      'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
-      'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+      'C:/Program Files/Google/Chrome/Application',
+      'C:/Program Files (x86)/Google/Chrome/Application',
+      'C:/Program Files/Microsoft/Edge/Application',
+      'C:/Program Files (x86)/Microsoft/Edge/Application',
+      process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'Application') : null,
+      ...pathDirs,
     ]
     : process.platform === 'darwin'
       ? [
-        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-        '/Applications/Chromium.app/Contents/MacOS/Chromium',
-        '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+        '/Applications/Google Chrome.app/Contents/MacOS',
+        '/Applications/Chromium.app/Contents/MacOS',
+        ...pathDirs,
       ]
       : [
-        '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium',
-        '/usr/bin/chromium-browser', '/usr/bin/microsoft-edge', '/snap/bin/chromium',
+        ...pathDirs,
+        '/usr/bin', '/usr/local/bin', '/snap/bin', '/opt/google/chrome',
+        '/usr/lib/chromium', '/usr/lib/chromium-browser', '/opt/chromium',
+        '/run/current-system/sw/bin',
       ];
-  return candidates.find(p => { try { return fs.existsSync(p); } catch { return false; } }) || null;
+  const cache = [
+    path.join(process.cwd(), '.browsers'),
+    path.join(process.cwd(), 'node_modules', '.cache', 'puppeteer'),
+    path.join(process.cwd(), 'node_modules', 'playwright-core', '.local-browsers'),
+    process.env.HOME ? path.join(process.env.HOME, '.cache', 'puppeteer') : null,
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'ms-playwright') : null,
+  ];
+  return {
+    explicit: process.env.AGORA_CHROME_DIR ? [process.env.AGORA_CHROME_DIR] : [],
+    system: [...new Set(system.filter(Boolean))],
+    cache: [...new Set(cache.filter(Boolean))],
+  };
+}
+
+// En una tier, primero el binario suelto y después la carpeta de una instalación.
+function findIn(dirs, { nested = true } = {}) {
+  for (const dir of dirs) {
+    for (const n of BROWSER_NAMES) {
+      const p = path.join(dir, n);
+      if (existsFile(p)) return p;
+    }
+  }
+  if (!nested) return null;
+  for (const dir of dirs) {
+    const hit = insideDir(dir);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+// El resultado se recuerda un rato: esto se llama en cada captura y en cada turno que ofrece el
+// juicio, y recorrer directorios cada vez no aporta nada (pero el cache caduca, para que un
+// navegador instalado con el servidor en marcha se encuentre sin reiniciarlo).
+let chromeHit = { at: 0, path: null };
+const CHROME_TTL = 15_000;
+
+export function chromePath() {
+  const env = process.env.AGORA_CHROME;
+  if (env) return existsFile(env) ? env : (insideDir(env) || null);
+  if (chromeHit.path && now() - chromeHit.at < CHROME_TTL) return chromeHit.path;
+  const tiers = searchTiers();
+  const found = findIn(tiers.explicit)
+    || findIn(tiers.system, { nested: false })
+    || findIn(tiers.system)
+    || findIn(tiers.cache);
+  chromeHit = { at: now(), path: found };
+  return found;
+}
+
+// Cuándo hay que renunciar al sandbox: corriendo como root (Docker, por defecto) o dentro de un
+// contenedor, Chromium se niega a arrancar sin `--no-sandbox`. Es un caso donde el servidor AVERIGUA
+// en vez de pedir una variable de entorno más.
+export function headlessArgs() {
+  const explicit = process.env.AGORA_CHROME_NO_SANDBOX;
+  const root = typeof process.getuid === 'function' && process.getuid() === 0;
+  const container = fs.existsSync('/.dockerenv') || fs.existsSync('/run/.containerenv');
+  const noSandbox = explicit === '1' || (explicit !== '0' && (root || container));
+  return noSandbox ? ['--no-sandbox', '--disable-dev-shm-usage'] : [];
 }
 
 // ---------------------------------------------------------------- PNG
@@ -177,6 +301,26 @@ function entryUrl(room) {
 // Qué se captura. Lo que la sala declare manda; si no declara nada, se captura la vista principal
 // del artefacto (la misma página que el panel carga): una sala sin configuración igual tiene
 // material visual, que es de lo que se trata.
+const slug = (text, fallback) => clampStr(String(text || fallback), 40).replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '') || fallback;
+
+// El producto de páginas × pantallas, que es lo que hace que una toma sea una toma y no una
+// casualidad: cada página que el artefacto sirve, en cada mundo de pantalla declarado.
+function crossShots(list, viewports) {
+  const out = [];
+  for (const base of list) {
+    for (const vp of viewports) {
+      if (out.length >= MAX_SHOTS) return out;
+      out.push({
+        ...base,
+        id: viewports.length > 1 ? `${base.id}-${vp.id}` : base.id,
+        label: viewports.length > 1 ? `${base.label} · ${vp.id} (${vp.width}×${vp.height})` : base.label,
+        viewport: { id: vp.id, width: vp.width, height: vp.height },
+      });
+    }
+  }
+  return out;
+}
+
 export async function shotsFor(room) {
   // Si nadie abrió el panel todavía, el motor pregunta él mismo qué página hay: la evidencia
   // visual no puede depender de que alguien esté mirando la pestaña de vista previa.
@@ -187,18 +331,31 @@ export async function shotsFor(room) {
     const url = typeof s === 'string' ? s : (s.url || '');
     const abs = /^https?:\/\//.test(url) ? url : `${base}${url.replace(/^\//, '')}`;
     return {
-      id: clampStr((typeof s === 'object' && (s.id || s.slug)) || `toma-${i + 1}`, 40).replace(/[^\w.-]+/g, '-'),
+      id: slug((typeof s === 'object' && (s.id || s.slug)) || `toma-${i + 1}`, `toma-${i + 1}`),
       label: clampStr((typeof s === 'object' && s.label) || url || `toma ${i + 1}`, 120),
       url: abs,
       declared: true,
     };
   });
-  if (declared.length) return declared;
-  const entry = room?.artifacts?.previewEntry
-    ? (room.artifacts.previewEntry.available ? room.artifacts.previewEntry.entry : null)
-    : entryUrl(room);
-  if (!entry) return [];
-  return [{ id: 'principal', label: `vista principal (${entry})`, url: `${base}${entry}`, declared: false }];
+  if (declared.length) return crossShots(declared, cfg.viewports);
+
+  // Sin tomas declaradas se retrata el artefacto ENTERO: todas las páginas que sirve la vista
+  // previa (el índice primero), no solo la principal. Un entregable con dos pantallas se juzgaba
+  // por una, y lo que no se retrata no se puede firmar.
+  const info = room?.artifacts?.previewEntry || null;
+  const pages = (info?.available ? [info.entry, ...(info.pages || [])] : [entryUrl(room)])
+    .filter(Boolean)
+    .filter((p, i, all) => all.indexOf(p) === i)
+    .slice(0, Math.max(1, Number(cfg.maxPages) || VISUAL_DEFAULTS.maxPages));
+  if (!pages.length) return [];
+  const list = pages.map((page, i) => ({
+    id: i === 0 ? 'principal' : slug(page.replace(/[^a-zA-Z0-9]+/g, '-'), `pagina-${i + 1}`),
+    label: i === 0 ? `vista principal (${page})` : `página ${i + 1} (${page})`,
+    url: `${base}${page}`,
+    declared: false,
+    page,
+  }));
+  return crossShots(list, cfg.viewports);
 }
 
 // Refresca lo que la vista previa sabe del artefacto. El panel lo hace por su cuenta al abrir la
@@ -223,6 +380,7 @@ async function launchChrome(chrome, { timeoutMs = 30_000 } = {}) {
     '--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`,
     '--no-first-run', '--no-default-browser-check', '--disable-extensions',
     '--disable-background-networking', '--hide-scrollbars', '--mute-audio',
+    ...headlessArgs(),
     // Render por software: hace falta para que WebGL funcione donde no hay GPU, y es exactamente
     // por esto que ninguna cifra de rendimiento salida de aquí se cuenta como rendimiento.
     '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
@@ -314,6 +472,11 @@ export async function runCaptures(room, { shots, chrome = null, cfg = null, onSh
   if (!list.length) {
     return { ok: false, reason: 'sin-pagina', message: 'La sala no tiene una página que capturar (proyecto sin HTML, o vista previa no disponible).' };
   }
+  // El cliente CDP habla por el WebSocket nativo de Node (22+). En un Node más viejo esto no es un
+  // fallo de captura: es una versión, y se dice así en vez de devolver una imagen vacía.
+  if (typeof WebSocket !== 'function') {
+    return { ok: false, reason: 'sin-websocket', message: `Este Node (${process.version}) no trae WebSocket nativo: la captura headless necesita Node 22 o superior.` };
+  }
   let launched = null;
   let cdp = null;
   const entries = [];
@@ -332,13 +495,17 @@ export async function runCaptures(room, { shots, chrome = null, cfg = null, onSh
     await cdp.send('Page.enable', {}, sessionId);
     await cdp.send('Runtime.enable', {}, sessionId);
     await cdp.send('Log.enable', {}, sessionId);
-    await cdp.send('Emulation.setDeviceMetricsOverride', {
-      width: config.viewport.width, height: config.viewport.height, deviceScaleFactor: 1, mobile: false,
-    }, sessionId);
-
     for (const shot of list) {
       cdp.errors.length = 0;
       const errorsBefore = cdp.errors.length;
+      // Cada toma fija su pantalla: es lo que hace que «escritorio» y «pantalla pequeña» sean dos
+      // mundos de verdad y no dos nombres.
+      const vp = shot.viewport || config.viewport;
+      try {
+        await cdp.send('Emulation.setDeviceMetricsOverride', {
+          width: vp.width, height: vp.height, deviceScaleFactor: 1, mobile: false,
+        }, sessionId);
+      } catch { /* si el navegador no lo acepta, se captura a la pantalla que tenga */ }
       let load = null;
       try { load = await Promise.all([
         cdp.wait('Page.loadEventFired', Math.min(20_000, config.timeoutMs)),
@@ -370,6 +537,9 @@ export async function runCaptures(room, { shots, chrome = null, cfg = null, onSh
         label: shot.label,
         url: shot.url,
         declared: !!shot.declared,
+        page: shot.page || null,
+        viewport: vp,
+        requestedViewport: shot.viewport || null,
         bytes: buf.length,
         hash: sha(buf),
         loaded: !!load,
@@ -403,7 +573,13 @@ function capturesDir(room) {
 export function visualState(room) {
   const v = room?.artifacts?.visual || null;
   if (!v) return { available: false, running: !!room?.artifacts?.visualRunning, shots: [], note: 'La sala todavía no capturó el artefacto.' };
-  return { ...v, running: !!room?.artifacts?.visualRunning, shots: v.shots || [] };
+  // La frescura se calcula al LEER: la misma toma deja de valer cuando la rama avanza, y quien
+  // consulta la API (el panel, un agente) tiene que ver eso sin deducirlo de dos campos.
+  return {
+    ...v,
+    running: !!room?.artifacts?.visualRunning,
+    shots: (v.shots || []).map(s => ({ ...s, freshness: shotFreshness(room, s) })),
+  };
 }
 
 // Una captura vale mientras el commit que retrató siga siendo el que hay. La misma regla que la
@@ -475,6 +651,8 @@ export async function captureRoom(room, { by = null, reason = 'trabajo', shots =
     const blank = shotIsBlank(stats);
     const shot = {
       id: e.id, label: e.label, url: e.url, declared: !!e.declared,
+      page: e.page || null,
+      viewport: e.viewport || cfg.viewport,
       // El nombre del archivo, relativo a la carpeta de capturas de la sala (que vive FUERA del
       // árbol del repo a propósito: retratar el artefacto no puede ensuciar el repo que se
       // entrega). La carpeta viaja en el registro para que quien sirve la imagen resuelva sin
@@ -509,6 +687,7 @@ export async function captureRoom(room, { by = null, reason = 'trabajo', shots =
     chrome: res.chrome || chromePath(),
     renderer: res.renderer || null,
     viewport: cfg.viewport,
+    viewports: cfg.viewports,
     shots: stored,
     ok: !!res.ok,
     note: res.ok
@@ -619,7 +798,12 @@ function resolveCaptures(room, cited) {
   const out = [];
   for (const c of list) {
     const key = String(typeof c === 'object' ? (c.id || c.hash) : c || '').trim();
-    const shot = shots.find(s => s.id === key || s.hash === key || (s.hash || '').endsWith(key));
+    // Exacto por id, por huella (o su cola), y por PREFIJO: con varias pantallas los ids son
+    // `principal-escritorio` y `principal-pantalla-pequena`, y citar `principal` (lo que dice la
+    // documentación y lo que un harness escribe naturalmente) tiene que encontrar sus tomas en vez
+    // de recibir «esa captura no existe».
+    const shot = shots.find(s => s.id === key || s.hash === key || (s.hash || '').endsWith(key))
+      || shots.find(s => key.length >= 4 && s.id.startsWith(`${key}-`));
     if (shot) out.push({ id: shot.id, hash: shot.hash, freshness: shotFreshness(room, shot) });
     else out.push({ id: key, hash: null, freshness: 'inexistente' });
   }
@@ -783,6 +967,10 @@ export function visualBrief(room, agentId, claims = []) {
     hash: s.hash,
     commit: s.commit ? String(s.commit).slice(0, 8) : null,
     freshness: shotFreshness(room, s),
+    // En qué pantalla se tomó: dos tomas de la misma página en dos mundos distintos son dos
+    // preguntas distintas («¿se lee en un escritorio?», «¿se lee en una pantalla pequeña?»).
+    viewport: s.viewport ? `${s.viewport.id || ''} ${s.viewport.width}×${s.viewport.height}`.trim() : null,
+    page: s.page || null,
     brightness: s.stats?.brightness ?? null,
     colors: s.stats?.colors ?? null,
     blank: !!s.blank,
@@ -878,7 +1066,7 @@ export function visualMarkdown(room) {
       `${st.running ? ' · (re)capturando' : ''}.`);
     L.push('');
     for (const s of st.shots) {
-      L.push(`- \`${s.id}\` · **${s.label}** · \`${s.hash}\` · ${shotFreshness(room, s)}` +
+      L.push(`- \`${s.id}\` · **${s.label}**${s.viewport ? ` · ${s.viewport.width}×${s.viewport.height}` : ''} · \`${s.hash}\` · ${shotFreshness(room, s)}` +
         `${s.stats ? ` · luminancia ${s.stats.brightness}/255, contraste ${s.stats.contrast}, ${s.stats.alive}% de píxeles con contenido` : ''}` +
         `${s.blank ? ' · **imagen negra: no cuenta como evidencia**' : ''}` +
         `${s.error ? ` · falló: ${s.error}` : ''}`);

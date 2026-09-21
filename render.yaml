@@ -22,18 +22,24 @@
 #     name: polymind-data
 #     mountPath: /var/agora-data
 #     sizeGB: 2
+#
+# Se despliega con la IMAGEN del repositorio (runtime: docker) y no con el runtime nativo, por una
+# razón concreta: la evidencia visual del artefacto necesita un navegador headless (Chromium) dentro
+# del contenedor. En el runtime nativo no hay ninguno y no se puede instalar uno, así que cada sala
+# publicaba su mitad visual como «no comprobada». El Dockerfile trae Chromium y sus bibliotecas, el
+# panel ya compilado y el servidor como usuario no-root.
 services:
   - type: web
     name: polymind
-    runtime: node
+    runtime: docker
+    dockerfilePath: ./Dockerfile
     region: frankfurt
     plan: free
-    buildCommand: npm ci && npm run build
-    startCommand: npm start
     healthCheckPath: /api/health
     envVars:
-      - key: NODE_VERSION
-        value: "22"
+      # El navegador del contenedor. El motor lo encuentra solo; decirlo evita cualquier duda.
+      - key: AGORA_CHROME
+        value: /usr/bin/chromium
       # El proxy puede cerrar una petición antes que el long-poll de 120 s: con 30 s el turno
       # vuelve siempre por su propio pie y el manual dice lo mismo que el servidor cumple.
       - key: AGORA_MAX_WAIT_SEC

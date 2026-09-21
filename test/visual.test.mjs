@@ -23,6 +23,7 @@ import {
   pngStats, captureRoom, recordJudgment, independenceOf, visualBrief, visualMarkdown,
   shotsFor, shotFreshness, runCaptures, visualState, judgmentsOf, setServerBase, closesNow,
   visionJudges, visionDuty, visionMarkdown, markAbsent,
+  chromePath, headlessArgs, visualConfig,
 } from '../server/engine/index.mjs';
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'agora-visual-'));
@@ -154,11 +155,17 @@ test('captura: guarda el PNG, lo mide del archivo y lo registra con huella y com
   const { room, res } = await conCapturas();
   assert.equal(res.ok, true);
   const v = visualState(room);
-  assert.equal(v.shots.length, 1);
+  // Dos mundos de pantalla por defecto: la misma página en un escritorio y en una pantalla
+  // pequeña. Es lo que hace que «se ve bien» sea una pregunta con dos respuestas posibles.
+  assert.equal(v.shots.length, 2);
+  assert.deepEqual(v.shots.map(s => s.id), ['principal-escritorio', 'principal-pantalla-pequena']);
+  assert.deepEqual(v.shots.map(s => s.viewport.width), [1280, 640]);
+  assert.equal(v.viewports.length, 2);
   const shot = v.shots[0];
-  assert.equal(shot.id, 'principal');
   assert.equal(shot.freshness ?? shotFreshness(room, shot), 'fresca');
   assert.ok(shot.file?.endsWith('.png'));
+  assert.equal(shot.page, 'index.html', 'cada captura recuerda qué página retrató');
+  assert.ok(v.shots.every(s => fs.existsSync(path.join(v.dir, s.file))), 'cada pantalla deja su PNG');
   // El PNG vive en la carpeta de capturas de la sala, FUERA del árbol del repo: retratar el
   // artefacto no puede ensuciar el repo que se entrega.
   const dir = visualState(room).dir;
@@ -200,18 +207,36 @@ test('captura: sin navegador en la máquina no hay aprobado, hay no-comprobado',
   assert.equal(res.entries.length, 0, 'sin imagen no hay entradas que contar como evidencia');
 });
 
-test('disparos: sin configuración se captura la vista principal del artefacto', async () => {
+test('disparos: sin configuración se retrata el artefacto entero, en cada mundo de pantalla', async () => {
   const { room } = artefactoRoom();
   const shots = await shotsFor(room);
-  assert.equal(shots.length, 1);
-  assert.equal(shots[0].id, 'principal');
+  assert.equal(shots.length, 2, 'la página principal en dos pantallas');
   assert.match(shots[0].url, /\/api\/rooms\/[a-z0-9]+\/preview\/index\.html$/);
+  assert.deepEqual(shots.map(s => [s.id, s.viewport.width, s.viewport.height]), [
+    ['principal-escritorio', 1280, 720], ['principal-pantalla-pequena', 640, 360],
+  ]);
+  // Con varias páginas, se retratan TODAS (el índice primero): lo que no se captura no se firma.
+  fs.writeFileSync(path.join(room.repo.dir, 'tormenta.html'), '<!doctype html><html><body><canvas></canvas></body></html>\n');
+  const todas = await shotsFor(room);
+  assert.equal(todas.length, 4, 'dos páginas × dos pantallas');
+  assert.match(todas[2].url, /tormenta\.html$/);
+  assert.equal(todas[3].label.includes('pantalla-pequena'), true);
+
+  // Con una sola pantalla declarada (la forma vieja, en singular), vuelve a haber una toma por página.
+  room.settings.visual = { viewport: { width: 1024, height: 768 } };
+  const una = await shotsFor(room);
+  assert.equal(una.length, 2);
+  assert.deepEqual(una.map(s => s.id), ['principal', 'tormenta-html']);
+  assert.equal(una[0].viewport.width, 1024);
+
   // Y con tomas declaradas, manda la sala: cada una es una URL relativa a la vista previa.
   room.settings.visual = { shots: [{ id: 'noche', label: 'noche', url: '?scene=noche' }, 'tormenta.html'] };
   const propias = await shotsFor(room);
-  assert.equal(propias.length, 2);
+  assert.equal(propias.length, 4);
   assert.ok(propias[0].url.endsWith('/preview/?scene=noche'));
-  assert.ok(propias[1].url.endsWith('/preview/tormenta.html'));
+  assert.ok(propias[0].id.startsWith('noche-'));
+  assert.ok(propias[1].url.endsWith('/preview/?scene=noche'), 'la misma toma en la otra pantalla');
+  assert.ok(propias[2].url.endsWith('/preview/tormenta.html'));
 });
 
 // ---------------------------------------------------------------- 3. independencia
@@ -311,8 +336,9 @@ test('turno: el brief ofrece el material, los objetivos y la independencia de qu
   const claims = buildObligations(room).claims;
   const brief = visualBrief(room, ids[2], claims);
   assert.equal(brief.available, true);
-  assert.equal(brief.shots.length, 1);
-  assert.match(brief.shots[0].url, /\/api\/rooms\/[a-z0-9]+\/visual\/principal$/);
+  assert.equal(brief.shots.length, 2);
+  assert.ok(brief.shots.every(s => s.viewport), 'cada toma dice en qué pantalla se sacó');
+  assert.match(brief.shots[0].url, /\/api\/rooms\/[a-z0-9]+\/visual\/principal(-[\w.-]+)?$/);
   assert.equal(brief.shots[0].freshness, 'fresca');
   assert.ok(brief.targets.length >= 1);
   assert.equal(brief.targets[0].independence, 'ajeno');
@@ -323,10 +349,58 @@ test('turno: el brief ofrece el material, los objetivos y la independencia de qu
   // Y el verificador recibe la evidencia visual en sus obligaciones.
   const ob = obligationsBrief(room);
   assert.ok(ob.visual?.available);
-  assert.ok(ob.visual.shots.length === 1);
+  assert.equal(ob.visual.shots.length, 2);
 });
 
-// ---------------------------------------------------------------- 6. los modelos que ven
+// ---------------------------------------------------------------- 6. encontrar el navegador
+// «No hay navegador» tiene que significar que NO HAY navegador, no que el motor no miró donde
+// estaba. Esto cubre las formas en que un servidor lo tiene instalado hoy: en el PATH, en una
+// carpeta que se le indique, o dentro de la carpeta de una instalación (chrome-linux64/chrome).
+test('navegador: el motor busca donde un navegador acaba de verdad, y sabe cuándo ceder el sandbox', () => {
+  const prev = { chrome: process.env.AGORA_CHROME, dir: process.env.AGORA_CHROME_DIR, ns: process.env.AGORA_CHROME_NO_SANDBOX };
+  try {
+    const dir = fs.mkdtempSync(path.join(TMP, 'browsers-'));
+    const bin = path.join(dir, 'chrome');
+    fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    delete process.env.AGORA_CHROME;
+    process.env.AGORA_CHROME_DIR = dir;
+    assert.equal(chromePath(), bin, 'una carpeta con el binario dentro se encuentra');
+
+    const cache = fs.mkdtempSync(path.join(TMP, 'cache-'));
+    const nestedBin = path.join(cache, 'chrome-linux64', 'chrome');
+    fs.mkdirSync(path.dirname(nestedBin), { recursive: true });
+    fs.writeFileSync(nestedBin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    delete process.env.AGORA_CHROME_DIR;
+    process.env.AGORA_CHROME = cache;   // apuntando a la CARPETA de la instalación, no al binario
+    assert.equal(chromePath(), nestedBin, 'la carpeta de una instalación también vale');
+  } finally {
+    if (prev.chrome === undefined) delete process.env.AGORA_CHROME; else process.env.AGORA_CHROME = prev.chrome;
+    if (prev.dir === undefined) delete process.env.AGORA_CHROME_DIR; else process.env.AGORA_CHROME_DIR = prev.dir;
+    if (prev.ns === undefined) delete process.env.AGORA_CHROME_NO_SANDBOX; else process.env.AGORA_CHROME_NO_SANDBOX = prev.ns;
+  }
+
+  // En un contenedor como root, Chromium no arranca sin --no-sandbox: el servidor lo deduce.
+  process.env.AGORA_CHROME_NO_SANDBOX = '1';
+  assert.ok(headlessArgs().includes('--no-sandbox'));
+  process.env.AGORA_CHROME_NO_SANDBOX = '0';
+  assert.deepEqual(headlessArgs(), [], 'y se puede forzar lo contrario');
+  delete process.env.AGORA_CHROME_NO_SANDBOX;
+});
+
+test('pantallas: la configuración admite varias, y la forma vieja (una sola) sigue valiendo', () => {
+  const room = createRoom({ task: 'Barco procedural con mar AAA.', settings: { minAgents: 2 } });
+  assert.equal(visualConfig(room).viewports.length, 2, 'por defecto se miran dos pantallas');
+  room.settings.visual = { viewport: { width: 800, height: 600 } };
+  const una = visualConfig(room);
+  assert.equal(una.viewports.length, 1);
+  assert.deepEqual([una.viewport.width, una.viewport.height], [800, 600]);
+  room.settings.visual = { viewports: [{ id: 'tv', width: 1920, height: 1080 }, { width: 375, height: 667 }] };
+  const varias = visualConfig(room);
+  assert.deepEqual(varias.viewports.map(v => v.id), ['tv', 'pantalla-2']);
+  assert.deepEqual([varias.viewports[1].width, varias.viewports[1].height], [375, 667]);
+});
+
+// ---------------------------------------------------------------- 7. los modelos que ven
 // Declarar «vision» no es un adorno: es el compromiso de mirar el artefacto y firmarlo. Lo que se
 // comprueba aquí es que la obligación es real (bloquea), que se le recuerda a quien la debe en su
 // propio turno, y que no se convierte en una firma imposible cuando ese agente se va.
@@ -408,6 +482,7 @@ test('acta: las capturas y los juicios salen escritos, con su independencia y su
   const md = visualMarkdown(room).join('\n');
   assert.match(md, /Evidencia visual/);
   assert.match(md, /principal/);
+  assert.match(md, /1280×720/, 'el acta dice en qué pantalla se tomó cada captura');
   assert.match(md, /SwiftShader/i, 'la procedencia del render se publica');
   assert.match(md, /DUDOSO/);
   assert.match(md, /ajeno/);

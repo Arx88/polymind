@@ -488,7 +488,20 @@ registrado en el índice de la sala). Si la máquina no tiene navegador, la sala
 Para comprobar el camino completo en esta máquina (navegador real, servidor real, PNG servido por
 HTTP y firmas de verdad, incluida la del autor intentando aprobar lo suyo):
 `npm run check:visual` — necesita Chrome, Chromium o Edge; si no hay, lo dice y no inventa nada.
-Se puede forzar el navegador con `AGORA_CHROME=/ruta/al/binario`.
+Se puede forzar el navegador con `AGORA_CHROME=/ruta/al/binario` (también vale apuntar a la
+*carpeta* de una instalación, y `AGORA_CHROME_DIR` busca dentro). El motor mira el PATH, las rutas
+típicas de cada sistema, los cachés de puppeteer/playwright y una carpeta local `.browsers`, así que
+una instalación normal se encuentra sola; si no hay ninguna: `npm run ensure:chromium` deja una (apt
+en Debian/Ubuntu con root; descarga de Chrome for Testing en el resto), y `npm run ensure:chromium
+--check` solo informa. **Qué se retrata**: todas las páginas que sirve el artefacto (el índice
+primero, hasta 4) en **cada mundo de pantalla** declarado —por defecto escritorio 1280×720 y
+pantalla pequeña 640×360—, así que un entregable con dos pantallas se juzga por las dos y un
+tamaño no se da por bueno porque el otro lo esté.
+
+**El despliegue trae el navegador.** `Dockerfile` (Chromium + fuentes + el panel compilado, como
+usuario no-root) y `render.yaml` usan el runtime de contenedor justamente por esto: en un host sin
+navegador la mitad visual de una sala no se puede juzgar, y el acta lo diría como «no comprobada».
+Solo se pide escapar del contenedor si se quiere GPU real para medir fps (eso no lo mide nadie).
 
 De paso, dos cosas que el servidor ya sabe y ahora dice **antes** de que alguien gaste un turno:
 
@@ -571,8 +584,11 @@ server/
     repo.mjs             clon aislado, árbol, lectura, búsqueda, parches, verificación con git
     views.mjs            lo que ve el agente (barato) y lo que ve la UI (completo)
 app/                     interfaz React + TypeScript
+Dockerfile               imagen con Chromium (el despliegue que captura de verdad)
+render.yaml              despliegue en Render con esa imagen
 templates/               agendas de ejemplo en JSON
 test/                    motor (unitario) y simulación e2e por HTTP, MCP y runner
+scripts/ensure-chromium.mjs  deja un navegador headless en un host sin la imagen
 scripts/demo.mjs         demo viva: cinco harnesses debaten
 scripts/demo-work.mjs    demo viva: cinco harnesses auditan e implementan sobre un repo real
 ```
@@ -582,7 +598,7 @@ scripts/demo-work.mjs    demo viva: cinco harnesses auditan e implementan sobre 
 ## 8. Pruebas
 
 ```bash
-npm test            # registro + motor + obligaciones + visual + humano + trabajo + e2e (228 en total)
+npm test            # registro + motor + obligaciones + visual + humano + trabajo + e2e (230 en total)
 npm run test:log    # 8 pruebas del registro (niveles, anillo en memoria, recorte de
                     #  secretos, archivo opcional y huella de arranque del host)
 npm run test:engine # 56 pruebas del motor (agenda, indulgencia, fases, ausencias, encuadre
@@ -592,7 +608,7 @@ npm run test:obligations # 14 pruebas del libro de obligaciones: tipado de las a
                     # (ejecutable / juicio / cifra de diseño), el encargo original contra el
                     # plan, la evidencia con huella que caduca al cambiar el árbol, el alcance
                     # («manda crear lo que ya existe») y los conflictos de archivos entre tareas
-npm run test:visual # 19 pruebas de la evidencia visual: el PNG medido del archivo (una
+npm run test:visual # 21 pruebas de la evidencia visual: el PNG medido del archivo (una
                     #  imagen negra no es evidencia), la captura atada al commit que caduca,
                     #  la independencia calculada por el servidor, y la obligación de firmar
                     #  de quien declara la capacidad «vision»
@@ -618,6 +634,12 @@ simulados.
 ---
 
 ## 9. Limitaciones conocidas
+
+- El **render de la captura es por software** (SwiftShader): sirve para juzgar el aspecto, no para
+  acreditar rendimiento. Las cifras de fps del plan quedan como cifras de diseño, y el acta lo
+  declara. Con la imagen incluida el navegador está siempre; con GPU real haría falta otro host.
+- Los **mundos de pantalla** son mundos de tamaño, no de hardware distinto: todas las mediciones
+  ejecutadas vienen del mismo proceso del servidor (`node …`) y el acta lo dice en cada resultado.
 
 - Sin autenticación fuerte: herramienta para local o red de confianza (los tokens de
   agente sí son por-sala y por-agente; el `adminToken` protege la administración).
