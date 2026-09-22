@@ -97,9 +97,14 @@ export function start(port = parseInt(process.env.PORT || '8787', 10), opts = {}
   const releaseDataLock = acquireDataLock(DATA_DIR, port);
   const agora = createAgora({ dataDir: DATA_DIR, ...opts });
   return new Promise((resolve, reject) => {
+    // Con el puerto DICHO por el entorno (un contenedor, Render, Fly, un PaaS cualquiera) no se
+    // prueba el siguiente: la plataforma enruta a ESE puerto, y escuchar en 8788 «porque 8787
+    // estaba ocupado» es un despliegue que arranca y no responde a nada. El rodeo de puertos es
+    // para la máquina de uno, donde abrir el 8788 es más útil que morir por un EADDRINUSE.
+    const portIsGiven = !!(process.env.PORT || '').trim();
     const tryListen = (p, attempt) => {
       agora.server.once('error', err => {
-        if (err.code === 'EADDRINUSE' && attempt < 10) tryListen(p + 1, attempt + 1);
+        if (err.code === 'EADDRINUSE' && !portIsGiven && attempt < 10) tryListen(p + 1, attempt + 1);
         else { releaseDataLock(); reject(err); }
       });
       agora.server.listen(p, () => {
@@ -108,7 +113,7 @@ export function start(port = parseInt(process.env.PORT || '8787', 10), opts = {}
         setServerBase(`http://127.0.0.1:${p}`);
         console.log('');
         console.log('  ╔══════════════════════════════════════════════════════════╗');
-        console.log('  ║  AGORA — salón de debates multi-agente                   ║');
+        console.log('  ║  POLYMIND — colaboración entre harnesses                ║');
         console.log('  ╚══════════════════════════════════════════════════════════╝');
         console.log(`  Panel humano:    ${base}`);
         if (lan) console.log(`  En tu red LAN:   http://${lan}:${p}`);

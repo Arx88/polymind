@@ -63,6 +63,10 @@ function applyMoveInner(room, agentId, move = {}) {
   if (room.status === 'closed') throw new DebateError('closed', 'El debate ya cerró. Obtén el resultado con /result.');
   const agent = room.agents[agentId];
   if (!agent) throw new DebateError('unknown_agent', 'Agente desconocido');
+  if (agent.joinAfterPhase && agent.joinAfterPhase === (room.phase.instanceId || room.phase.startedAt)) {
+    throw new DebateError('next_phase', 'Tu incorporación empieza en la siguiente fase. Consulta /turn cuando avance.');
+  }
+  if (agent.status === 'absent') throw new DebateError('absent', 'Tu asiento está ausente. Reconecta o ocupa una vacante disponible.');
 
   const kind = clampStr(move.kind, 40);
   const key = clampStr(move.idempotencyKey || obj(move.payload).idempotencyKey || '', 80);

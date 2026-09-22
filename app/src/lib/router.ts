@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 
 export interface Route {
-  key: 'debates' | 'nuevo' | 'room' | 'agentes' | 'agente' | 'plantillas' | 'resultados' | 'ajustes';
+  key: 'landing' | 'debates' | 'nuevo' | 'room' | 'agentes' | 'agente' | 'plantillas' | 'resultados' | 'ajustes';
   params: string[];
   query: URLSearchParams;
   raw: string;
@@ -17,6 +17,10 @@ export function parseHash(hash: string): Route {
   const query = new URLSearchParams(queryPart || '');
   const head = parts[0] || '';
   switch (head) {
+    case 'trabajos':
+      return { key: 'debates', params: [], query, raw };
+    case 'inicio':
+      return { key: 'landing', params: [], query, raw };
     case 'd':
       return { key: 'room', params: [parts[1] || ''], query, raw };
     case 'nuevo':
@@ -32,7 +36,7 @@ export function parseHash(hash: string): Route {
     case 'ajustes':
       return { key: 'ajustes', params: [], query, raw };
     default:
-      return { key: 'debates', params: [], query, raw };
+      return { key: 'landing', params: [], query, raw };
   }
 }
 

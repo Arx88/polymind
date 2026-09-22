@@ -23,7 +23,7 @@ import {
   pngStats, captureRoom, recordJudgment, independenceOf, visualBrief, visualMarkdown,
   shotsFor, shotFreshness, runCaptures, visualState, judgmentsOf, setServerBase, closesNow,
   visionJudges, visionDuty, visionMarkdown, markAbsent,
-  chromePath, headlessArgs, visualConfig,
+  chromePath, headlessArgs, visualConfig, reviewIsCovered, currentTurn, captureHoldMs,
 } from '../server/engine/index.mjs';
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'agora-visual-'));
@@ -383,7 +383,10 @@ test('navegador: el motor busca donde un navegador acaba de verdad, y sabe cuán
   process.env.AGORA_CHROME_NO_SANDBOX = '1';
   assert.ok(headlessArgs().includes('--no-sandbox'));
   process.env.AGORA_CHROME_NO_SANDBOX = '0';
-  assert.deepEqual(headlessArgs(), [], 'y se puede forzar lo contrario');
+  assert.ok(!headlessArgs().includes('--no-sandbox'), 'y se puede forzar lo contrario');
+  // `--disable-dev-shm-usage` va siempre: en un contenedor `/dev/shm` es diminuto y Chrome muere a
+  // mitad de captura. No es una opción de sandbox, es una condición del contenedor.
+  assert.ok(headlessArgs().includes('--disable-dev-shm-usage'));
   delete process.env.AGORA_CHROME_NO_SANDBOX;
 });
 
@@ -400,7 +403,46 @@ test('pantallas: la configuración admite varias, y la forma vieja (una sola) si
   assert.deepEqual([varias.viewports[1].width, varias.viewports[1].height], [375, 667]);
 });
 
-// ---------------------------------------------------------------- 7. los modelos que ven
+// ---------------------------------------------------------------- 7. la captura retiene la revisión
+// La carrera que esto cierra: el servidor fotografía el artefacto justo al integrar el último
+// ítem, y en un host lento la fase de revisión puede cerrar antes que el navegador — la afirmación
+// de aspecto quedaba «sin captura» sin que nadie hubiera decidido nada. Mientras hay una captura en
+// vuelo, la revisión NO cierra y el turno lo dice.
+test('captura en vuelo: la revisión no cierra hasta que la imagen está', async () => {
+  const { room, ids } = artefactoRoom();
+  room.status = 'debate';
+  room.phase = { name: 'review', startedAt: Date.now(), deadline: Date.now() + 300_000, data: { review: { revisados: {}, round: 1 } } };
+  // Bruno ya revisó la mejora integrada: la revisión está cubierta y podría cerrar…
+  room.phase.data.review.revisados[ids[1]] = { w1: { verdict: 'ok', at: Date.now() } };
+  assert.equal(reviewIsCovered(room), true, 'sin captura en curso, la revisión puede cerrar');
+
+  room.artifacts.visualRunning = { at: Date.now(), by: ids[2], reason: 'último ítem integrado' };
+  assert.equal(reviewIsCovered(room), false, 'con la captura en curso, no');
+  const turn = currentTurn(room, ids[2]);
+  assert.equal(turn.action, 'wait');
+  assert.match(turn.message, /capturando el artefacto/i);
+
+  delete room.artifacts.visualRunning;
+  assert.equal(reviewIsCovered(room), true, 'y al terminar, la puerta se abre sola');
+
+  // Y la retención CADUCA: un navegador colgado no congela la sala para siempre.
+  room.artifacts.visualRunning = { at: Date.now() - captureHoldMs(room) - 1_000, by: ids[2], reason: 'captura vieja' };
+  assert.equal(reviewIsCovered(room), true, 'pasado el plazo de captura, la sala sigue');
+  delete room.artifacts.visualRunning;
+});
+
+test('una captura informativa no detiene un trabajo sin afirmaciones visuales', () => {
+  const { room, ids } = artefactoRoom();
+  room.status = 'debate';
+  room.phase = { name: 'review', startedAt: Date.now(), deadline: Date.now() + 300_000, data: { review: { revisados: { [ids[1]]: { w1: { verdict: 'ok', at: Date.now() } } }, round: 1 } } };
+  room.artifacts.synthesis.final = '1. Ejecutar node check.mjs y conservar las pruebas verdes.';
+  room.artifacts.proposals.p1.plan = room.artifacts.synthesis.final;
+  room.artifacts.visualRunning = { at: Date.now(), by: ids[2], reason: 'captura informativa' };
+  assert.equal(reviewIsCovered(room), true);
+  assert.notEqual(currentTurn(room, ids[2]).message?.includes('La revisión no cierra hasta que la imagen esté'), true);
+});
+
+// ---------------------------------------------------------------- 8. los modelos que ven
 // Declarar «vision» no es un adorno: es el compromiso de mirar el artefacto y firmarlo. Lo que se
 // comprueba aquí es que la obligación es real (bloquea), que se le recuerda a quien la debe en su
 // propio turno, y que no se convierte en una firma imposible cuando ese agente se va.

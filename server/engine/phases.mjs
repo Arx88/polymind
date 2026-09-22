@@ -66,6 +66,7 @@ export function maybeAutoStart(room) {
   if (room.status !== 'lobby' || !canStart(room)) return false;
   const s = room.settings;
   const n = activeAgents(room).length;
+  if (s.startAsSoonAsReady) return startRoom(room, null);
   if (s.expectedAgents > 0 && n >= s.expectedAgents) return startRoom(room, null);
   const joins = room.order.map(id => room.agents[id]?.joinedAt || 0);
   const lastJoin = joins.length ? Math.max(...joins) : 0;
@@ -260,7 +261,7 @@ export function enterPhase(room, name, extraData = {}) {
       d.verifierId = verifierId;
       d.selfVerified = selfVerified;
       log(room, null, 'phase', verifierId
-        ? `Verificación independiente a cargo de ${nameOf(room, verifierId)}${selfVerified ? ' (autoverificación: no hay otro agente)' : ''}.`
+        ? `Verificación a cargo de ${nameOf(room, verifierId)}${selfVerified ? ' (mismo harness o autor: no hay otro harness independiente disponible)' : ' (harness independiente cuando se conoce su identidad)'}.`
         : 'Verificación omitida: no hay agentes disponibles.');
       break;
     }
@@ -791,6 +792,13 @@ export function sweep(room, { force = false } = {}) {
     room.__changed = true;
   }
   if (recovered) return true;
+  // In agreement mode there is intentionally no thinking clock. A room with no
+  // remaining harnesses cannot obtain consent, so end it explicitly with the
+  // unfinished work recorded instead of keeping an eternal live room.
+  if (agreementOpen(room) && !activeAgents(room).length) {
+    closeRoom(room, 'expired', 'Todos los harnesses se desconectaron antes de concluir. El trabajo y las objeciones pendientes quedan registrados.');
+    return true;
+  }
   if (room.phase.name === 'review' && room.finalReviewDeadline > t && !force) {
     maybeAdvance(room);
     return room.status === 'closed';

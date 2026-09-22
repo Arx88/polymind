@@ -14,19 +14,19 @@ export function joinRoom(room, profile = {}) {
   const capabilities = normalizeCapabilities(profile.capabilities);
 
   if (room.status !== 'lobby') {
+    if (room.status === 'closed') throw new DebateError('closed_to_join', 'La sala ya cerró. Crea un nuevo trabajo para continuar.');
+    if (room.settings.allowMidJoin === false) throw new DebateError('closed_to_join', 'La sala no admite incorporaciones durante el debate.');
     const seat = takeVacancy(room);
-    if (seat && room.settings.allowMidJoin !== false) {
+    if (seat) {
       return register(room, { name, profile, role: declared || seat.role, capabilities, seat, replacementOf: seat.agentId });
     }
-    throw new DebateError('closed_to_join',
-      `La sala ya comenzó (fase ${room.phase.name}). ` +
-      (room.vacancies.length ? 'No quedan vacantes.' : 'Sin vacantes abiertas.') +
-      ` Lectura en vivo: GET /api/rooms/${room.code}/public`);
+    return register(room, { name, profile, role: declared, capabilities, seat: null, replacementOf: null,
+      joinAfterPhase: ['work', 'review'].includes(room.phase.name) ? null : (room.phase.instanceId || room.phase.startedAt) });
   }
   return register(room, { name, profile, role: declared, capabilities, seat: null, replacementOf: null });
 }
 
-function register(room, { name, profile, role, capabilities, seat, replacementOf }) {
+function register(room, { name, profile, role, capabilities, seat, replacementOf, joinAfterPhase = null }) {
   const taken = new Set(Object.values(room.agents).map(a => a.name));
   const finalName = taken.has(name) ? `${name}-${room.order.length + 1}` : name;
   const id = seat?.agentId || nextSeat(room);
@@ -43,6 +43,7 @@ function register(room, { name, profile, role, capabilities, seat, replacementOf
     joinedAt: now(),
     lastSeenAt: now(),
     status: 'active',
+    joinAfterPhase,
     recoveryVacancy: false,
     overBudget: false,
     servedChars: 0,
@@ -63,7 +64,7 @@ function register(room, { name, profile, role, capabilities, seat, replacementOf
     }
     log(room, id, 'join', `${finalName} entra como reemplazo de ${nameOf(room, replacementOf)}${harnessOf(profile, role)}.`);
   } else {
-    log(room, id, 'join', `${finalName} se une al debate${harnessOf(profile, role)}.`);
+    log(room, id, 'join', `${finalName} se une al debate${harnessOf(profile, role)}${joinAfterPhase ? '; participará desde la próxima fase' : ''}.`);
   }
   return {
     agentId: id, token: tok, role,
@@ -71,6 +72,7 @@ function register(room, { name, profile, role, capabilities, seat, replacementOf
     model: room.agents[id].model || null,
     seat: id,
     replacement: !!replacementOf,
+    joiningNextPhase: !!joinAfterPhase,
   };
 }
 
@@ -233,14 +235,17 @@ export function assignCritiques(room) {
 export function assignVerifier(room, winnerProposal, preference = null) {
   const active = activeAgents(room).filter(id => !room.agents[id].overBudget);
   const candidates = active.filter(id => id !== winnerProposal.author);
+  const authorHarness = room.agents[winnerProposal.author]?.harness?.trim().toLowerCase();
+  const differentHarness = id => !!authorHarness && !!room.agents[id]?.harness
+    && room.agents[id].harness.trim().toLowerCase() !== authorHarness;
   const ballots = room.lastBallots || {};
   const support = id => {
     const ranking = ballots[id] || [];
     const pos = ranking.indexOf(winnerProposal.id);
     return pos === -1 ? ranking.length + 1 : pos; // fuera de su ranking = máxima distancia
   };
-  const ranked = [...candidates].sort((a, b) => support(b) - support(a));
-  if (ranked.length) return { verifierId: ranked[0], selfVerified: false };
+  const ranked = [...candidates].sort((a, b) => Number(differentHarness(b)) - Number(differentHarness(a)) || support(b) - support(a));
+  if (ranked.length) return { verifierId: ranked[0], selfVerified: !!authorHarness && !differentHarness(ranked[0]) };
   if (candidates.length) return { verifierId: candidates[0], selfVerified: false };
   const author = room.agents[winnerProposal.author];
   if (author && author.status !== 'absent') return { verifierId: winnerProposal.author, selfVerified: true };
@@ -311,6 +316,7 @@ export function rosterSummary(room) {
       lens: a.role || null,
       capabilities: a.capabilities || [],
       status: a.status,
+      joiningNextPhase: !!a.joinAfterPhase && a.joinAfterPhase === (room.phase?.instanceId || room.phase?.startedAt),
       overBudget: !!a.overBudget,
       lastSeenAt: a.lastSeenAt,
       online,

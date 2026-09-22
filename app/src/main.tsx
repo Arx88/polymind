@@ -5,6 +5,7 @@ import './styles.css';
 import './polymind-reference.css';
 import './workspace.css';
 import './polish.css';
+import './landing.css';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Falta el contenedor #root');

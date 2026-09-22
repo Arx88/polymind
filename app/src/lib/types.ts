@@ -190,7 +190,8 @@ export interface RosterAgent {
   role: string | null;
   roleLabel: string;
   capabilities: string[];
-  status: AgentStatus;
+    status: AgentStatus;
+    joiningNextPhase?: boolean;
   overBudget: boolean;
   lastSeenAt: number;
   online: boolean;
@@ -703,7 +704,7 @@ export interface Room {
   rules: {
     language: string; tone: string; minAgents: number; expectedAgents: number;      consensusThreshold: number; requireDiversity: boolean; tokenBudgetPerAgent: number;
       phaseMs: Record<string, number>; maxDurationMs: number;
-      extraordinary?: boolean; planOnly?: boolean; phaseAdvanceMode?: 'timed' | 'agreement';
+        extraordinary?: boolean; planOnly?: boolean; phaseAdvanceMode?: 'timed' | 'agreement'; startAsSoonAsReady?: boolean; allowMidJoin?: boolean;
     };
   roster: RosterAgent[];
   phaseAgreement?: { revision: string; ready: string[]; pending: string[]; total: number } | null;
@@ -870,7 +871,7 @@ export interface RoomConfig {
   settings: {
     language?: string; tone?: string; minAgents?: number; expectedAgents?: number;
     consensusThreshold?: number; maxDurationMs?: number; tokenBudgetPerAgent?: number;
-    extraordinary?: boolean; requireDiversity?: boolean; offlineMs?: number; planOnly?: boolean; phaseAdvanceMode?: 'timed' | 'agreement';
+      extraordinary?: boolean; requireDiversity?: boolean; offlineMs?: number; planOnly?: boolean; phaseAdvanceMode?: 'timed' | 'agreement'; startAsSoonAsReady?: boolean;
     repo?: { verifyCommand?: string; maxWorkItems?: number; reviewRounds?: number; recursionRounds?: number; claimIdleMs?: number };
   };
   repo: RoomConfigRepo | null;

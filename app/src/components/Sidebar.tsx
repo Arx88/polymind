@@ -11,7 +11,7 @@ export interface NavItem {
 }
 
 export const NAV: NavItem[] = [
-  { key: 'debates', label: 'Trabajos', icon: 'chat', href: '#/' },
+  { key: 'debates', label: 'Trabajos', icon: 'chat', href: '#/trabajos' },
   { key: 'agentes', label: 'Agentes', icon: 'users', href: '#/agentes' },
   { key: 'resultados', label: 'Resultados', icon: 'chart', href: '#/resultados' },
   { key: 'plantillas', label: 'Plantillas', icon: 'doc', href: '#/plantillas' },
@@ -23,13 +23,13 @@ export function Sidebar({ active, counts }: { active: string; counts?: Record<st
   const [menuOpen, setMenuOpen] = useState(false);
   return (
     <aside className={`sidebar${menuOpen ? ' menuOpen' : ''}`}>
-      <div className="brand">
+      <a className="brand" href="#/" aria-label="Ir al inicio de Polymind">
         <LogoMark />
         <div>
           <b>Polymind</b>
           
         </div>
-      </div>
+      </a>
 
       <a className="btnPrimary" href="#/nuevo" aria-label="Nuevo trabajo" onClick={() => setMenuOpen(false)}>
         <Icon name="plus" size={17} strokeWidth={2.6} />

@@ -401,9 +401,9 @@ test('encuadre a ciegas: nadie ve los puntos ajenos hasta que la fase cierra', (
 // ---------------------------------------------------------------- ciclo completo
 test('ciclo completo: encuadre → propuestas → crítica → voto → veto → síntesis → verificación', () => {
   const room = newRoom();
-  const a = addAgent(room, 'Ana', { role: 'analyst', capabilities: ['data', 'logic'] });
-  const b = addAgent(room, 'Bruno', { role: 'skeptic', capabilities: ['risk', 'logic'] });
-  const c = addAgent(room, 'Ciro', { role: 'redteam', capabilities: ['risk'] });
+  const a = addAgent(room, 'Ana', { harness: 'codex', role: 'analyst', capabilities: ['data', 'logic'] });
+  const b = addAgent(room, 'Bruno', { harness: 'claude-code', role: 'skeptic', capabilities: ['risk', 'logic'] });
+  const c = addAgent(room, 'Ciro', { harness: 'zcode', role: 'redteam', capabilities: ['risk'] });
   assert.equal(room.agents[a].role, 'analyst');
   assert.equal(room.agents[b].role, 'skeptic');
 

@@ -33,6 +33,7 @@ services:
     name: polymind
     runtime: docker
     dockerfilePath: ./Dockerfile
+    dockerContext: .
     region: frankfurt
     plan: free
     healthCheckPath: /api/health

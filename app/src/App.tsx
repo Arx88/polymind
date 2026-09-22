@@ -10,6 +10,7 @@ import { HarnessConnect } from './routes/HarnessConnect';
 import { Templates } from './routes/Templates';
 import { Results } from './routes/Results';
 import { Settings } from './routes/Settings';
+import { Landing } from './routes/Landing';
 
 export function App() {
   const route = useHashRoute();
@@ -20,6 +21,8 @@ export function App() {
     debates: rooms.filter(r => r.status !== 'closed').length,
     resultados: rooms.filter(r => r.status === 'closed').length,
   };
+
+  if (route.key === 'landing') return <Landing />;
 
   return (
     <div className="shell">

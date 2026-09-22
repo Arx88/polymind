@@ -109,6 +109,13 @@ const FAST = {
   joinQuietMs: 120_000,
   minAgents: 2,
   requireDiversity: false,
+  // La captura visual se apaga en ESTA suite a propósito: lo que se prueba aquí es el ciclo de
+  // trabajo y revisión (parche, verificación, commit, deshacer, recursión), y estas salas tienen
+  // repo. Con navegador en la máquina, el servidor arrancaría una captura de verdad en segundo
+  // plano y —correctamente— retendría el cierre de la revisión hasta tener la imagen: el ciclo
+  // pasaría a depender de cuánto tarde Chrome. La captura y la obligación de firmar tienen su
+  // propia suite (test/visual.test.mjs) y su comprobación con navegador real (npm run check:visual).
+  visual: { enabled: false },
 };
 
 function repoRoom(names = ['Ana', 'Bruno', 'Ciro'], settings = {}) {

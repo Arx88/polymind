@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createRoom, joinRoom, attachScaffold, previewFile, sweep } from '../server/engine/index.mjs';
+import { createRoom, joinRoom, attachScaffold, previewFile, sweep, currentTurn, applyMove, enterPhase } from '../server/engine/index.mjs';
 import { authAgent, rosterSummary } from '../server/engine/roster.mjs';
 import { recoverWorkParticipants, workflowHealth } from '../server/engine/recovery.mjs';
 import { forceFinish } from '../server/engine/phases.mjs';
+import { activeAgents } from '../server/engine/state.mjs';
+import { maybeAutoStart } from '../server/engine/phases.mjs';
 
 function fixture(mode = 'timed') {
   const room = createRoom({ task: 'Producir un mar verificable y recuperar agentes desconectados', settings: { planOnly: true, phaseAdvanceMode: mode } });
@@ -21,6 +23,46 @@ test('assignment cannot claim an agent is connected', () => {
   const {room, seats} = fixture(); stale(room, seats[1]);
   const a = rosterSummary(room).find(a => a.id === seats[1].agentId);
   assert.equal(a.online, false); assert.equal(a.presence, 'offline'); assert.ok(a.holding);
+});
+test('room starts with the minimum and late harness enters at the next phase', () => {
+  const room = createRoom({ task: 'Un equipo empieza y otro aporta en la ronda siguiente', settings: { planOnly: true, minAgents: 1, expectedAgents: 0, startAsSoonAsReady: true } });
+  const first = joinRoom(room, { name: 'Primer harness', harness: 'uno' });
+  assert.equal(maybeAutoStart(room), true);
+  assert.equal(room.phase.name, 'frame');
+  const late = joinRoom(room, { name: 'Segundo harness', harness: 'dos' });
+  assert.equal(late.joiningNextPhase, true);
+  assert.deepEqual(activeAgents(room), [first.agentId]);
+  assert.equal(currentTurn(room, late.agentId).action, 'wait');
+  assert.throws(() => applyMove(room, late.agentId, { kind: 'pass' }), { code: 'next_phase' });
+  enterPhase(room, 'proposal');
+  assert.ok(activeAgents(room).includes(late.agentId));
+  assert.equal(currentTurn(room, late.agentId).action, 'submit-proposal');
+});
+test('a new harness can rescue a blocked work phase without taking a vacancy', () => {
+  const { room, seats, patch } = fixture();
+  stale(room, seats[1]); stale(room, seats[2]);
+  const late = joinRoom(room, { name: 'Visual reviewer', harness: 'otro' });
+  assert.equal(late.joiningNextPhase, false);
+  assert.equal(recoverWorkParticipants(room), true);
+  assert.equal(patch.reviewer, late.agentId);
+  assert.ok(activeAgents(room).includes(late.agentId));
+});
+test('an abandoned agreement room reaches an explicit terminal state', () => {
+  const room = createRoom({ task: 'Acordar una entrega sin arneses que respondan', settings: { planOnly: true, minAgents: 1, phaseAdvanceMode: 'agreement', startAsSoonAsReady: true } });
+  const seat = joinRoom(room, { name: 'Solo' });
+  maybeAutoStart(room);
+  stale(room, seat);
+  sweep(room);
+  sweep(room);
+  assert.equal(room.status, 'closed');
+  assert.equal(room.result.outcome, 'expired');
+});
+test('unresponsive reviewer can be reassigned despite heartbeat traffic', () => {
+  const { room, seats, patch } = fixture();
+  patch.reviewAssignedAt = Date.now() - 86400000;
+  assert.equal(recoverWorkParticipants(room), true);
+  assert.equal(patch.reviewer, seats[2].agentId);
+  assert.equal(room.work.pending, patch.id);
 });
 test('stale reviewer opens vacancy and review moves without discarding patch', () => {
   const {room, seats, patch} = fixture(); stale(room, seats[1]);

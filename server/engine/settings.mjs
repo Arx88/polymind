@@ -30,6 +30,7 @@ export const DEFAULT_SETTINGS = {
   language: 'es',
   minAgents: 2,
   expectedAgents: 0,           // 0 = desconocido; auto-arranque por calma
+  startAsSoonAsReady: false,
   joinQuietMs: 90_000,         // silencio de entradas con mínimos reunidos → arranca
   maxDurationMs: 45 * 60_000,
   consensusThreshold: 0.75,    // cuota de la opción modal para marcar un punto «acordado»
@@ -62,7 +63,10 @@ export const DEFAULT_SETTINGS = {
   // esas afirmaciones como `sin-captura` en el resultado, nunca como aprobadas.
   visual: {
     enabled: true,
-    viewport: { width: 1280, height: 720 },
+    // PANTALLAS: no se declaran aquí. El motor retrata por defecto el escritorio y una pantalla
+    // pequeña (VISUAL_DEFAULTS.viewports); esta sala solo las cambia si trae `viewports`
+    // (varias) o `viewport` (una, la forma vieja). Escribir un `viewport` singular por defecto
+    // aquí convertiría «se ve bien» en una pregunta con una sola respuesta posible.
     settleMs: 1500,
     // Tomas declaradas: [{id, label, url}] con url relativa a la vista previa (?t=12, index.html…)
     // o absoluta. Vacío = la vista principal del artefacto, tal cual la carga el panel.
@@ -334,6 +338,7 @@ export function pickSettings(input = {}) {
     // números solo coordinan el arranque (mínimo para empezar y cuántos se esperan).
     minAgents: clampInt(src.minAgents, DEFAULT_SETTINGS.minAgents, 1, 64),
     expectedAgents: clampInt(src.expectedAgents, 0, 0, 64),
+    startAsSoonAsReady: src.startAsSoonAsReady === undefined ? DEFAULT_SETTINGS.startAsSoonAsReady : !!src.startAsSoonAsReady,
     joinQuietMs: clampInt(src.joinQuietMs, DEFAULT_SETTINGS.joinQuietMs, 1000, 30 * 60_000),
     maxDurationMs: clampInt(src.maxDurationMs, DEFAULT_SETTINGS.maxDurationMs, 60_000, 6 * 3600_000),
     consensusThreshold: clampFraction(src.consensusThreshold, DEFAULT_SETTINGS.consensusThreshold, 0.5, 1),
@@ -353,6 +358,10 @@ export function pickSettings(input = {}) {
     // defecto, así que la sala no podía bajar el límite de tareas ni el de paciencia
     // con un agente que se apaga a mitad.
     repo: { ...DEFAULT_SETTINGS.repo },
+    // Evidencia visual. Igual que `repo`: lo que no se normaliza aquí se descarta en
+    // silencio. Sin esto, `settings.visual` (tomas declaradas, pantallas, apagado) no llegaba
+    // nunca a la sala y el motor usaba siempre sus valores por defecto.
+    visual: { ...DEFAULT_SETTINGS.visual },
   };
   const pm = src.phaseMs && typeof src.phaseMs === 'object' ? src.phaseMs : {};
   for (const k of Object.keys(DEFAULT_SETTINGS.phaseMs)) {
@@ -369,6 +378,40 @@ export function pickSettings(input = {}) {
   s.repo.claimIdleMs = clampInt(rp.claimIdleMs, DEFAULT_SETTINGS.repo.claimIdleMs, 30_000, 60 * 60_000);
   s.repo.reviewRounds = clampInt(rp.reviewRounds, DEFAULT_SETTINGS.repo.reviewRounds, 1, 3);
   s.repo.recursionRounds = clampInt(rp.recursionRounds, DEFAULT_SETTINGS.repo.recursionRounds, 0, 6);
+  const vp = src.visual && typeof src.visual === 'object' ? src.visual : {};
+  s.visual.enabled = vp.enabled === undefined ? DEFAULT_SETTINGS.visual.enabled : !!vp.enabled;
+  s.visual.settleMs = clampInt(vp.settleMs, DEFAULT_SETTINGS.visual.settleMs, 0, 60_000);
+  // Pantallas: solo se fijan si la sala las pide. `viewport` (singular) es la forma vieja y
+  // fija una sola; `viewports` (plural) declara varias. Sin ninguna de las dos, la sala mira
+  // las del motor (escritorio y pantalla pequeña), que es lo que hace la pregunta interesante.
+  const view = vp.viewport && typeof vp.viewport === 'object' ? vp.viewport : null;
+  if (view) {
+    s.visual.viewport = {
+      width: clampInt(view.width, 1280, 320, 3840),
+      height: clampInt(view.height, 720, 240, 2160),
+    };
+  }
+  if (Array.isArray(vp.viewports) && vp.viewports.length) {
+    s.visual.viewports = vp.viewports
+      .filter(x => x && typeof x === 'object')
+      .slice(0, 6)
+      .map((x, i) => ({
+        id: String(x.id || `pantalla-${i + 1}`).slice(0, 40),
+        width: clampInt(x.width, 1280, 320, 3840),
+        height: clampInt(x.height, 720, 240, 2160),
+      }));
+  }
+  if (Array.isArray(vp.shots)) {
+    s.visual.shots = vp.shots
+      .filter(x => x && typeof x === 'object')
+      .slice(0, 24)
+      .map((x, i) => ({
+        id: String(x.id || `toma-${i + 1}`).slice(0, 40),
+        label: String(x.label || x.id || `Toma ${i + 1}`).slice(0, 120),
+        url: String(x.url || '').slice(0, 500),
+      }))
+      .filter(x => x.url);
+  }
   if (s.expectedAgents > 0) s.minAgents = Math.min(s.minAgents, s.expectedAgents);
   return s;
 }

@@ -2,13 +2,14 @@
 
 import { Avatar } from './Avatar';
 import { Empty } from './Ui';
-import { estimateTokens, timeAgo } from '../lib/format';
+import { timeAgo } from '../lib/format';
 import type { RosterAgent } from '../lib/types';
 
-export function AgentRoster({ agents, showTokens = false, empty = 'Aún no hay agentes en la sala.' }: {
+export function AgentRoster({ agents, empty = 'Aún no hay agentes en la sala.', onDisconnect, disconnectBusy = false }: {
   agents: RosterAgent[];
-  showTokens?: boolean;
   empty?: string;
+  onDisconnect?: (agent: RosterAgent) => void;
+  disconnectBusy?: boolean;
 }) {
   if (!agents.length) return <Empty icon="users" title={empty} />;
   return (
@@ -20,6 +21,7 @@ export function AgentRoster({ agents, showTokens = false, empty = 'Aún no hay a
         // (escribir un parche tarda más que cualquier umbral de latido), y decirlo es lo que evita
         // que el panel se contradiga con el tablero, que ya dice «trabaja Buffy».
         const label = agent.status === 'absent' ? 'Ausente'
+          : agent.joiningNextPhase ? 'Entra en la próxima fase'
           : !agent.online ? 'Sin señal reciente'
           : holding ? (holding.state === 'reviewing' ? `Revisión asignada · ${holding.itemId}` : `Trabajo asignado · ${holding.itemId}`)
             : agent.overBudget ? 'Presupuesto agotado'
@@ -34,7 +36,6 @@ export function AgentRoster({ agents, showTokens = false, empty = 'Aún no hay a
                 {agent.harness || 'harness sin declarar'}
                 {agent.model ? ` · ${agent.model}` : ''}
                 {agent.roleLabel ? ` · lente ${agent.roleLabel}` : ''}
-                {showTokens ? ` · ~${estimateTokens(0) + agent.tokens} tok` : ''}
                 {holding ? ` · ${holding.state === 'reviewing' ? 'revisa' : 'escribe'} ${holding.itemId}${holding.since ? ` desde ${timeAgo(holding.since)}` : ''}` : ''}
                 {(holding?.also || []).map(extra => ` · ${extra.state === 'reviewing' ? 'revisa' : 'escribe'} ${extra.itemId}`).join('')}
                 {` · última señal ${timeAgo(agent.lastSeenAt)}`}
@@ -44,6 +45,7 @@ export function AgentRoster({ agents, showTokens = false, empty = 'Aún no hay a
               <i className={`dot ${!agent.online ? 'off' : holding ? 'live' : ''}`} />
               {label}
             </span>
+            {onDisconnect && agent.status !== 'absent' && <button type="button" className="btnGhost btnMini" disabled={disconnectBusy} onClick={() => onDisconnect(agent)} aria-label={`Desconectar a ${agent.name} de esta sala`}>Desconectar</button>}
             {holding?.title && <div className="agentTask">{holding.title}</div>}
             {agent.capabilities.length > 0 && <div className="agentCapabilities">Capacidades: {agent.capabilities.join(' · ')}</div>}
           </div>

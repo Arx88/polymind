@@ -24,7 +24,7 @@ import { LongText } from '../components/LongText';
 import { RoomArt, seatsFromRoom } from '../components/RoomArt';
 import { RoomConfigCard } from '../components/RoomConfigCard';
 import { DeleteWorkButton } from '../components/DeleteWork';
-import type { Room as RoomType } from '../lib/types';
+import type { Room as RoomType, RosterAgent } from '../lib/types';
 
 type RoomTab = 'live' | 'debate' | 'dissent' | 'work' | 'preview' | 'log' | 'config';
 
@@ -58,17 +58,22 @@ export function Room({ code, onChanged }: { code: string; onChanged: () => void 
 
   const seats = useMemo(() => seatsFromRoom(room?.roster || []), [room?.roster]);
 
-  async function admin(op: string) {
+  async function admin(op: string, extra: Record<string, unknown> = {}) {
     if (!adminToken || !room) return;
     setBusy(true);
     try {
-      await api.admin(room.code, { adminToken, op });
+      await api.admin(room.code, { adminToken, op, ...extra });
       onChanged();
     } catch (err) {
       window.alert(err instanceof Error ? err.message : 'No se pudo ejecutar la acción');
     } finally {
       setBusy(false);
     }
+  }
+
+  function disconnect(agent: RosterAgent) {
+    if (!window.confirm(`¿Desconectar a ${agent.name}? Su asiento quedará libre para otro harness. El trabajo y los parches se conservan.`)) return;
+    void admin('open-vacancy', { agentId: agent.id, reason: 'desconectado por el administrador' });
   }
 
   if (error) return <ErrorBox message={error} />;
@@ -102,7 +107,7 @@ export function Room({ code, onChanged }: { code: string; onChanged: () => void 
     <div className="wide">
       {room.storage?.failedAt && <ErrorBox title="Hay progreso pendiente de guardar" message="El servidor no pudo escribir en disco. No reinicies Polymind: los últimos cambios pueden estar solo en memoria. Comprueba espacio y permisos; el servidor reintentará guardar." />}
       <div className="pageHead">
-        <button className="backBtn" onClick={() => navigate('#/')} title="Volver"><Icon name="back" size={18} /></button>
+        <button className="backBtn" onClick={() => navigate('#/trabajos')} title="Volver a trabajos"><Icon name="back" size={18} /></button>
         <div style={{ minWidth: 0 }}>
           <h1>{room.title || room.task.slice(0, 70)}</h1>
           <p className="tiny roomMeta" style={{ marginTop: 6 }}>
@@ -468,7 +473,7 @@ export function Room({ code, onChanged }: { code: string; onChanged: () => void 
             title={`Agentes (${room.roster.length})`}
             action={room.vacancies.length ? <Tag tone="amber">{plural(room.vacancies.length, 'vacante')}</Tag> : null}
           >
-            <AgentRoster agents={room.roster} showTokens />
+            <AgentRoster agents={room.roster} onDisconnect={adminToken && room.status !== 'closed' ? disconnect : undefined} disconnectBusy={busy} />
             {room.vacancies.map(vacancy => (
               <Note key={vacancy.agentId}>
                 <b>Asiento vacante de {vacancy.name}</b>
@@ -487,7 +492,9 @@ export function Room({ code, onChanged }: { code: string; onChanged: () => void 
           }
           <Card title="Reglas y coste">
             <div className="stack" style={{ gap: 8 }}>
-              <RuleRow label="Avance" value={room.rules.phaseAdvanceMode === 'agreement' ? 'Por acuerdo · sin reloj' : `Con plazos · ${Math.round(room.rules.maxDurationMs / 60000)} min de debate`} />
+                <RuleRow label="Avance" value={room.rules.phaseAdvanceMode === 'agreement' ? 'Por acuerdo · sin reloj' : `Con plazos · ${Math.round(room.rules.maxDurationMs / 60000)} min de debate`} />
+                <RuleRow label="Arranque" value={room.rules.startAsSoonAsReady ? `Al llegar al mínimo (${room.rules.minAgents})` : 'Al reunir el equipo o vencer la espera'} />
+                <RuleRow label="Incorporaciones" value={room.rules.allowMidJoin ? 'Abiertas durante el trabajo; en debate, desde la próxima fase' : 'Cerradas tras el inicio'} />
               <RuleRow label="Fase actual" value={`${room.phaseLabel} · ${room.phaseAgreement ? 'sin reloj' : clock(remaining)}`} />
               <RuleRow label="Umbral de consenso" value={pct0(room.rules.consensusThreshold)} />
               <RuleRow label="Idioma y tono" value={`${room.rules.language} · ${room.rules.tone}`} />

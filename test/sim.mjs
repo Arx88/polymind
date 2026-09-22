@@ -246,7 +246,7 @@ function decide(turn, behavior, name) {
 async function fakeAgent(code, name, behavior = {}) {
   behavior.bias = behavior.bias || 0;
   const j1 = await post(`${base}/api/rooms/${code}/join`, {
-    name, model: name + '-model', harness: 'sim', role: behavior.role, capabilities: behavior.capabilities,
+    name, model: name + '-model', harness: `sim-${name}`, role: behavior.role, capabilities: behavior.capabilities,
   });
   if (!j1.body.ok) throw new Error(`${name}: join falló ${JSON.stringify(j1.body)}`);
   const { agentId, token, role } = j1.body;

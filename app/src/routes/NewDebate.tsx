@@ -40,8 +40,9 @@ export function NewDebate({ query }: { query: URLSearchParams }) {
   const [context, setContext] = useState('');
   const [criteria, setCriteria] = useState('');
   const [agenda, setAgenda] = useState<AgendaDraft[]>([]);
-  const [minAgents, setMinAgents] = useState(3);
-  const [expectedAgents, setExpectedAgents] = useState(3);
+  const [minAgents, setMinAgents] = useState(2);
+  const [expectedAgents, setExpectedAgents] = useState(0);
+  const [startAsSoonAsReady, setStartAsSoonAsReady] = useState(true);
   const [threshold, setThreshold] = useState(0.75);
   const [tone, setTone] = useState('profesional y constructivo');
   const [language, setLanguage] = useState('es');
@@ -87,6 +88,7 @@ export function NewDebate({ query }: { query: URLSearchParams }) {
       })));
       if (settings.minAgents) setMinAgents(settings.minAgents);
       if (settings.expectedAgents != null) setExpectedAgents(settings.expectedAgents);
+      if (settings.startAsSoonAsReady != null) setStartAsSoonAsReady(!!settings.startAsSoonAsReady);
       if (settings.consensusThreshold) setThreshold(settings.consensusThreshold);
       if (settings.tone) setTone(settings.tone);
       if (settings.language) setLanguage(settings.language);
@@ -130,9 +132,10 @@ export function NewDebate({ query }: { query: URLSearchParams }) {
       options: (point.options || []).join(', '),
       weight: point.weight ?? 1,
     })));
-    const settings = (selected.settings || {}) as { minAgents?: number; expectedAgents?: number; consensusThreshold?: number };
+    const settings = (selected.settings || {}) as { minAgents?: number; expectedAgents?: number; startAsSoonAsReady?: boolean; consensusThreshold?: number };
     if (settings.minAgents) setMinAgents(settings.minAgents);
-    if (settings.expectedAgents) setExpectedAgents(settings.expectedAgents);
+    if (settings.expectedAgents != null) setExpectedAgents(settings.expectedAgents);
+    if (settings.startAsSoonAsReady != null) setStartAsSoonAsReady(settings.startAsSoonAsReady);
     if (settings.consensusThreshold) setThreshold(settings.consensusThreshold);
   }, [template, templates]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -156,6 +159,7 @@ export function NewDebate({ query }: { query: URLSearchParams }) {
       settings: {
         minAgents,
         expectedAgents,
+        startAsSoonAsReady,
         consensusThreshold: threshold,
         tone,
         language,
@@ -497,6 +501,10 @@ export function NewDebate({ query }: { query: URLSearchParams }) {
             </select>
           </label>
         </div>
+        <label className="field" style={{ marginTop: 16 }}>
+          <span><input type="checkbox" checked={startAsSoonAsReady} onChange={e => setStartAsSoonAsReady(e.target.checked)} /> Empezar apenas llegue el mínimo</span>
+          <small>Los demás harnesses pueden entrar más tarde. Durante el debate participan desde la siguiente fase; durante el trabajo pueden ayudar de inmediato. Si el mínimo es 1, el primero inicia el encargo.</small>
+        </label>
         <div className="three">
           <label className="field">
             <span>Avance de las fases</span>
@@ -603,7 +611,7 @@ export function NewDebate({ query }: { query: URLSearchParams }) {
 
       <section hidden={step !== 3}>
         <Card title="Tu encargo, antes de empezar">
-          <div className="briefReview"><h3>{task || 'Falta definir el objetivo'}</h3><p>{criteria || 'Faltan los criterios de éxito'}</p><dl><div><dt>Entrega</dt><dd>{planOnly ? 'Solo planificación (plan con checksum)' : repoPath ? 'Código: mejoras sobre tu repo, en rama aparte' : 'Código: proyecto nuevo que crea la sala'}</dd></div><div><dt>Equipo</dt><dd>{minAgents} agentes mínimos · {expectedAgents || 'sin límite de'} esperados</dd></div><div><dt>Avance</dt><dd>{phaseAdvanceMode === 'agreement' ? 'Por acuerdo de todos · sin reloj durante el trabajo' : `Con plazos · ${durationMin} minutos de debate más ejecución y revisión`}</dd></div><div><dt>Presupuesto</dt><dd>{budget ? `${budget.toLocaleString('es')} tokens estimados por agente` : 'Sin límite de tokens configurado'}</dd></div><div><dt>Verificación</dt><dd>{repoVerify || 'Sin comando de pruebas explícito'}</dd></div></dl></div>
+          <div className="briefReview"><h3>{task || 'Falta definir el objetivo'}</h3><p>{criteria || 'Faltan los criterios de éxito'}</p><dl><div><dt>Entrega</dt><dd>{planOnly ? 'Solo planificación (plan con checksum)' : repoPath ? 'Código: mejoras sobre tu repo, en rama aparte' : 'Código: proyecto nuevo que crea la sala'}</dd></div><div><dt>Equipo</dt><dd>{minAgents} agentes mínimos · {expectedAgents || 'sin límite de'} esperados · {startAsSoonAsReady ? 'inicia al alcanzar el mínimo' : 'espera nuevas conexiones'}</dd></div><div><dt>Avance</dt><dd>{phaseAdvanceMode === 'agreement' ? 'Por acuerdo de todos · sin reloj durante el trabajo' : `Con plazos · ${durationMin} minutos de debate más ejecución y revisión`}</dd></div><div><dt>Presupuesto</dt><dd>{budget ? `${budget.toLocaleString('es')} tokens estimados por agente` : 'Sin límite de tokens configurado'}</dd></div><div><dt>Verificación</dt><dd>{repoVerify || 'Sin comando de pruebas explícito'}</dd></div></dl></div>
           {repoPath && !repoVerify && <Note>Sin un comando de verificación explícito, no debes interpretar una mejora integrada como una mejora probada. El servidor puede detectar un comando del repositorio; compruébalo al crear la sala.</Note>}
           <Note>Crear el trabajo no conecta ni ejecuta tus harnesses. El siguiente paso te dará la invitación y las instrucciones para conectarlos.</Note>
         </Card>
@@ -614,7 +622,7 @@ export function NewDebate({ query }: { query: URLSearchParams }) {
         <button className="btnBlue" onClick={create} disabled={busy}>
           {busy ? 'Creando…' : tournament ? 'Crear torneo' : 'Crear trabajo e invitar agentes'}
         </button>}
-        <button className="btnGhost" onClick={() => navigate('#/')}>Cancelar</button>
+        <button className="btnGhost" onClick={() => navigate('#/trabajos')}>Cancelar</button>
       </div>
     </div>
   );

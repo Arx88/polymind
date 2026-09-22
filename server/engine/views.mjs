@@ -193,6 +193,12 @@ function computeTurn(room, agentId, { since = 0, record = true } = {}) {
   if (room.status === 'closed') {
     return finish({ ...b, action: 'done', message: 'Debate cerrado. Pide el resultado con GET /result y repórtalo con su checksum.' });
   }
+  if (agent.joinAfterPhase && agent.joinAfterPhase === (room.phase.instanceId || room.phase.startedAt)) {
+    return finish({ ...b, action: 'wait', message: `Te incorporaste durante ${room.phase.name}. Tu primer turno de trabajo llegará al empezar la próxima fase; consulta /turn para recibirlo.` });
+  }
+  if (agent.status === 'absent') {
+    return finish({ ...b, action: 'wait', message: 'Tu asiento figura ausente. Si sigue libre, vuelve a autenticarte para recuperarlo; si lo ocupa otro harness, entra en un asiento nuevo.' });
+  }
   if (room.status === 'lobby') {
     const canI = activeAgents(room).length >= room.settings.minAgents;
     return finish({
@@ -721,6 +727,17 @@ function reviewTurn(room, agentId) {
       payloadSchema: [visual.move.payload, '{kind:"capture", payload:{}}'],
     };
   }
+  // Con una captura en curso no se cierra la revisión (el juicio de lo que se ve necesita la
+  // imagen): decirlo en el turno evita que un agente se quede pidiendo turno sin entender qué
+  // espera la sala.
+  if (visual?.running && visual.targets.length) {
+    return {
+      ...base,
+      action: 'wait',
+      message: 'El servidor está capturando el artefacto ahora mismo (navegador headless). La revisión no cierra hasta que la imagen esté: vuelve a /turn en unos segundos y firma el juicio sobre las capturas nuevas.',
+      payloadSchema: ['{kind:"pass"}  → no tienes nada más que revisar'],
+    };
+  }
   return {
     ...base,
     action: 'wait',
@@ -1202,7 +1219,9 @@ export function publicRoom(room) {
       language: room.settings.language,
       tone: room.settings.tone,
       minAgents: room.settings.minAgents,
-      expectedAgents: room.settings.expectedAgents,
+        expectedAgents: room.settings.expectedAgents,
+        startAsSoonAsReady: !!room.settings.startAsSoonAsReady,
+        allowMidJoin: room.settings.allowMidJoin !== false,
       consensusThreshold: room.settings.consensusThreshold,
       requireDiversity: room.settings.requireDiversity,
       tokenBudgetPerAgent: room.settings.tokenBudgetPerAgent,

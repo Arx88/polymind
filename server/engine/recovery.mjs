@@ -10,7 +10,7 @@ export function hasRecentSignal(room, id) {
 
 // Connection leases are independent of thinking/phase deadlines. Never discard a patch.
 export function recoverWorkParticipants(room) {
-  if (room.status !== 'debate' || !['work', 'review'].includes(room.phase.name)) return false;
+  if (room.status !== 'debate') return false;
   let changed = false;
   for (const id of activeAgents(room)) {
     const a = room.agents[id];
@@ -20,10 +20,28 @@ export function recoverWorkParticipants(room) {
       changed = removed || changed;
     }
   }
+  // A late arrival normally waits for the next round. If everyone in this round has
+  // disappeared, the queued harnesses become the recovery cohort for the current one.
+  if (!activeAgents(room).length) {
+    const phaseId = room.phase.instanceId || room.phase.startedAt;
+    for (const id of room.order) {
+      const agent = room.agents[id];
+      if (agent?.status !== 'absent' && agent?.joinAfterPhase === phaseId && hasRecentSignal(room, id)) {
+        agent.joinAfterPhase = null;
+        log(room, id, 'recovery', `${agent.name} entra en la fase actual porque el equipo anterior dejó de responder.`);
+        changed = true;
+      }
+    }
+  }
+  if (!['work', 'review'].includes(room.phase.name)) return changed;
   const work = room.work;
   const patch = work?.patches?.[work.pending];
-  if (patch && !patch.review && patch.verify?.status !== 'running' && !hasRecentSignal(room, patch.reviewer)) {
-    const next = activeAgents(room).find(id => id !== patch.author && hasRecentSignal(room, id));
+  if (patch && !patch.review && patch.verify?.status !== 'running'
+      && (!hasRecentSignal(room, patch.reviewer)
+        || now() - (patch.reviewAssignedAt || patch.at || now()) > claimIdleThresholdMs(room))) {
+    const candidates = activeAgents(room).filter(id => id !== patch.author && id !== patch.reviewer && hasRecentSignal(room, id));
+    const authorHarness = room.agents[patch.author]?.harness?.trim().toLowerCase();
+    const next = candidates.find(id => authorHarness && room.agents[id]?.harness?.trim().toLowerCase() !== authorHarness) || candidates[0];
     if (next && next !== patch.reviewer) {
       const previous = patch.reviewer;
       patch.reviewer = next;
@@ -38,6 +56,9 @@ export function recoverWorkParticipants(room) {
 
 export function workflowHealth(room) {
   if (room.status !== 'debate') return null;
+  if (!activeAgents(room).some(id => hasRecentSignal(room, id))) {
+    return { state: 'blocked', reason: 'No hay participantes con señal reciente.', action: 'Reconecta un harness o incorpora otro para continuar.' };
+  }
   const patch = room.work?.patches?.[room.work.pending];
   if (patch && !patch.review && patch.verify?.status !== 'running') {
     const available = activeAgents(room).filter(id => id !== patch.author && hasRecentSignal(room, id));
@@ -45,9 +66,6 @@ export function workflowHealth(room) {
     if (now() - (patch.reviewAssignedAt || patch.at || now()) > claimIdleThresholdMs(room)) {
       return { state: 'stalled', reason: `La revisión de ${patch.id} no ha producido un veredicto dentro del plazo de actividad.`, action: 'Comprueba el harness revisor. Recibir latidos no demuestra avance; el parche sigue protegido.' };
     }
-  }
-  if (['work', 'review'].includes(room.phase.name) && !activeAgents(room).some(id => hasRecentSignal(room, id))) {
-    return { state: 'blocked', reason: 'No hay participantes con señal reciente.', action: 'Reconecta un harness o cubre una vacante para continuar.' };
   }
   if (room.phase.name === 'work' && room.work && !patch && !room.work.finishedAt) {
     const work = room.work;

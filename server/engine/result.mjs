@@ -676,7 +676,7 @@ export function healFrozenResults(hall) {
 
 export function exportMarkdown(room) {
   const r = room.result;
-  if (!r) return `# AGORA ${room.code}\n\nSin resultado todavía (fase ${room.phase.name}).\n`;
+  if (!r) return `# Polymind ${room.code}\n\nSin resultado todavía (fase ${room.phase.name}).\n`;
   const L = [];
   L.push(`# ${r.title || gist(r.task, 80)}`);
   L.push('');
@@ -951,6 +951,6 @@ export function exportMarkdown(room) {
   L.push(`- Total: ~${r.cost.estTokens} tokens (${r.cost.totalChars} caracteres).`);
   L.push(`- Media por agente: ~${r.cost.avgPerAgent} tokens en ${plural(r.stats.agents, 'participante')}.`);
   L.push('');
-  L.push('_Resultado congelado por AGORA. El checksum identifica exactamente esta versión._');
+  L.push('_Resultado congelado por Polymind. El checksum identifica exactamente esta versión._');
   return L.join('\n');
 }

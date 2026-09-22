@@ -103,7 +103,11 @@ export function recordServed(room, agentId, value) {
 export function nameOf(room, id) { return room.agents[id]?.name || id || 'sistema'; }
 
 export function activeAgents(room) {
-  return room.order.filter(id => room.agents[id] && room.agents[id].status !== 'absent');
+  const phaseId = room.phase?.instanceId || room.phase?.startedAt;
+  return room.order.filter(id => {
+    const agent = room.agents[id];
+    return agent && agent.status !== 'absent' && (!agent.joinAfterPhase || agent.joinAfterPhase !== phaseId);
+  });
 }
 
 export function agentOf(room, id) { return room.agents[id] || null; }

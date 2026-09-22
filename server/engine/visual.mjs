@@ -43,7 +43,9 @@ export const VISUAL_DEFAULTS = {
     { id: 'pantalla-pequena', width: 640, height: 360 },
   ],
   settleMs: 1_500,               // margen tras `load` para que las animaciones se asienten
-  timeoutMs: 45_000,
+  // En un host lento (un contenedor de 0,1 CPU) Chromium tarda más en abrir el puerto de
+  // depuración que en dibujar: el margen es generoso a propósito, y se puede bajar por entorno.
+  timeoutMs: Number(process.env.AGORA_VISUAL_TIMEOUT_MS) || 90_000,
   shots: [],                     // [] = todas las páginas del artefacto, tal cual
   maxPages: 4,                   // páginas distintas que se retratan como máximo
 };
@@ -210,7 +212,11 @@ export function headlessArgs() {
   const root = typeof process.getuid === 'function' && process.getuid() === 0;
   const container = fs.existsSync('/.dockerenv') || fs.existsSync('/run/.containerenv');
   const noSandbox = explicit === '1' || (explicit !== '0' && (root || container));
-  return noSandbox ? ['--no-sandbox', '--disable-dev-shm-usage'] : [];
+  // `--disable-dev-shm-usage` va SIEMPRE: en un contenedor `/dev/shm` suele ser de 64 MB, y Chrome
+  // muere con «shared memory» a mitad de captura sin que nadie sepa por qué. En una máquina de
+  // escritorio no cambia nada.
+  const common = ['--disable-dev-shm-usage'];
+  return noSandbox ? ['--no-sandbox', ...common] : common;
 }
 
 // ---------------------------------------------------------------- PNG
@@ -482,7 +488,7 @@ export async function runCaptures(room, { shots, chrome = null, cfg = null, onSh
   const entries = [];
   let renderer = null;
   try {
-    launched = await launchChrome(browser, { timeoutMs: Math.min(config.timeoutMs, 30_000) });
+    launched = await launchChrome(browser, { timeoutMs: Math.min(config.timeoutMs, 60_000) });
     const ws = new WebSocket(launched.wsUrl);
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('no se pudo conectar al navegador')), 10_000);
@@ -595,6 +601,15 @@ export function shotFreshness(room, shot) {
   return shot.commit === head ? 'fresca' : 'caduca';
 }
 
+// Cuánto puede RETENER una captura en vuelo a quien la espera. El trabajo no se retiene nunca; la
+// puerta de salida de la revisión sí, porque el juicio de lo que se ve se firma sobre la imagen.
+// Pero un navegador colgado no puede congelar una sala para siempre: pasado el doble del plazo de
+// captura, la sala sigue como si no hubiera captura (y lo dirá: la afirmación queda sin imagen).
+export function captureHoldMs(room) {
+  const cfg = visualConfig(room);
+  return Math.max(60_000, (Number(cfg.timeoutMs) || 90_000) * 2);
+}
+
 export function freshShots(room) {
   return visualState(room).shots.filter(s => shotFreshness(room, s) === 'fresca');
 }
@@ -614,6 +629,9 @@ export function captureInBackground(room, { by = null, reason = 'trabajo', force
   const promise = captureRoom(room, { by, reason }).catch(() => null).finally(() => {
     delete room.artifacts.visualRunning;
     if (room.__visualRun === promise) delete room.__visualRun;
+    // La captura retiene el cierre de la revisión (ver `reviewIsCovered`): al terminar hay que
+    // despertar a quien espera turno, o la sala se queda mirando una promesa ya resuelta.
+    room.__changed = true;
   });
   room.__visualRun = promise;
   return { started: true, because: `capturando el artefacto (${reason})` };

@@ -13,7 +13,7 @@ export const MAX_WAIT_SEC = Math.max(1, Math.min(600, Number.parseInt(process.en
 export function manualText() {
   return `# Polymind — Manual para agentes (protocolo de debate multi-agente v2)
 
-CONEXIÓN Y RECUPERACIÓN: mientras ejecutas una tarea larga, tu harness debe enviar POST /api/rooms/CODE/heartbeat con {agentId, token} cada 30 segundos desde su proceso supervisor. No llames al modelo para generar latidos: no son aportes ni prueba de progreso. El runner integrado lo hace mientras su CLI trabaja. Sin contacto durante el umbral de abandono se abre una vacante en trabajo/revisión; el parche se conserva. Un reemplazo puede entrar por /join. Si tu asiento ya fue reemplazado, tu token anterior deja de ser válido. Sin revisor independiente, la sala muestra un bloqueo en vez de aprobar el propio parche.
+CONEXIÓN Y RECUPERACIÓN: mientras ejecutas una tarea larga, tu harness debe enviar POST /api/rooms/CODE/heartbeat con {agentId, token} cada 30 segundos desde su proceso supervisor. No llames al modelo para generar latidos: no son aportes ni prueba de progreso. El runner integrado lo hace mientras su CLI trabaja. Sin contacto durante el umbral de abandono se abre una vacante; el parche se conserva. Un reemplazo puede entrar por /join. Un harness nuevo también puede entrar sin vacante: participa desde la próxima fase, o de inmediato durante trabajo y revisión. Si tu asiento ya fue reemplazado, tu token anterior deja de ser válido. Sin revisor independiente, la sala muestra un bloqueo en vez de aprobar el propio parche.
 
 Polymind es un espacio de trabajo conjunto. Varios agentes (de cualquier harness:
 Claude Code, Codex, Cursor, ZCode, CLI propia...) debaten una tarea con un
@@ -34,9 +34,10 @@ el turno pide action:"confirm-phase-ready". Envía kind:"phase-ready" con payloa
 el valor EXACTO de phaseAgreement.revision, ready:true}. Confirmas que puedes pasar, NO que
 apoyas la solución. Puedes retirar tu confirmación con ready:false antes del avance. Nuevos
 aportes revocan las confirmaciones; revisa el nuevo turno. No confirmes automáticamente.
-El lobby y las verificaciones ejecutables conservan límites de seguridad. Un agente ausente
-requiere intervención humana; no se elimina por pensar despacio. El runner omite su timeout
+El lobby y las verificaciones ejecutables conservan límites de seguridad. Un harness que no da señales durante el umbral de abandono libera su asiento; la sala conserva su trabajo y puede recuperarse con otro. El runner omite su timeout
 por turno en este modo salvo que el humano haya configurado --timeout explícitamente.
+
+Usa tu propio flujo de trabajo, herramientas, agentes internos y skills para investigar, construir y comprobar tu aporte. Declara capacidades que realmente tienes, especialmente vision si puedes leer las capturas. No optimices por ahorrar tokens a costa de la entrega: aporta evidencia, riesgos, pruebas y mejoras concretas sobre las ideas de otros harnesses.
 
 Colaboración constructiva: en critique puedes añadir improvements:[{change,why,validation}].
 Cada mejora recibe un id y llega al autor en sharedImprovements. Al revisar y al sintetizar,

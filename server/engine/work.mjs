@@ -24,7 +24,8 @@ import {
   searchRepo, baselineInBackground, revertCommit, commitFiles,
 } from './repo.mjs';
 import { claimRefs, isCreating, scopeVerdict, fileConflicts } from './ledger.mjs';
-import { captureInBackground } from './visual.mjs';
+import { captureInBackground, captureHoldMs } from './visual.mjs';
+import { buildObligations } from './obligations.mjs';
 
 // Un único gancho para que el trabajo asíncrono (verificación) persista y avise
 // al panel: lo instala el transporte HTTP al arrancar.
@@ -685,16 +686,20 @@ export function submitPatch(room, agentId, payload = {}) {
 }
 
 function assignReviewer(room, item, authorId) {
+  const authorHarness = room.agents[authorId]?.harness?.trim().toLowerCase();
+  const differentHarness = id => !!authorHarness && !!room.agents[id]?.harness
+    && room.agents[id].harness.trim().toLowerCase() !== authorHarness;
   const candidates = activeAgents(room).filter(id => id !== authorId && canWork(room, id));
   if (!candidates.length) {
     const anyOther = activeAgents(room).filter(id => id !== authorId);
-    return anyOther[0] || null;
+    return anyOther.find(differentHarness) || anyOther[0] || null;
   }
   const load = id => {
     const a = room.agents[id];
     return (a.workReviews || 0) * 2 + (a.workClaims || 0);
   };
-  return [...candidates].sort((a, b) => load(a) - load(b) || (room.agents[a].joinedAt - room.agents[b].joinedAt))[0];
+  return [...candidates].sort((a, b) => Number(differentHarness(b)) - Number(differentHarness(a))
+    || load(a) - load(b) || (room.agents[a].joinedAt - room.agents[b].joinedAt))[0];
 }
 
 export function reviewPatch(room, agentId, payload = {}) {
@@ -1311,6 +1316,16 @@ export function reviewState(room) {
 export function reviewIsCovered(room) {
   const items = integradasDe(room);
   if (!items.length) return true;
+  // Una captura en vuelo RETA el cierre de la revisión. El juicio de lo que se ve se firma sobre
+  // una imagen, y cerrar mientras el servidor está fotografiando convertía una carrera de reloj en
+  // una afirmación «sin captura» (más probable en un host lento, donde la captura tarda más que la
+  // fase). El trabajo no se retiene: esto es solo la puerta de salida de la revisión, y la retención
+  // caduca (un navegador colgado no congela la sala).
+  const capturando = room.artifacts?.visualRunning;
+  // Una captura de un proyecto sin afirmaciones visuales es informativa, no una
+  // condición de cierre. Solo retener la revisión si alguien debe juzgar su aspecto.
+  const visualPending = capturando && buildObligations(room).claims.some(c => c.type === 'juicio');
+  if (visualPending && now() - (capturando.at || 0) < captureHoldMs(room)) return false;
   const vistos = new Set();
   for (const [agentId, porItem] of Object.entries(room.phase.data.review?.revisados || {})) {
     for (const id of Object.keys(porItem || {})) {
