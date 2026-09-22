@@ -10,6 +10,8 @@
 #   · Se corre como el usuario `node` (no root): así el navegador no necesita ceder el sandbox, que
 #     es lo que obliga `--no-sandbox` cuando un contenedor corre como root.
 #   · El cliente CDP usa el WebSocket nativo de Node: hace falta Node 22+ (la imagen ya lo trae).
+#   · La memoria durable clona y publica salas en Git: sin el binario `git`, el servidor arranca
+#     pero no rehidrata nada después de un redespliegue.
 
 FROM node:22-bookworm-slim
 
@@ -18,6 +20,7 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     chromium \
     ca-certificates \
+    git \
     fonts-dejavu-core \
     fonts-liberation \
     fontconfig \

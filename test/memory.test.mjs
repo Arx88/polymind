@@ -10,6 +10,11 @@ import { joinRoom } from '../server/engine/roster.mjs';
 import { workspaceDirFor } from '../server/engine/repo.mjs';
 import { createMemory, memoryConfigFromEnv, scrubRemote } from '../server/memory.mjs';
 
+test('la imagen de producción incluye Git para rehidratar la memoria durable', () => {
+  const dockerfile = fs.readFileSync(new URL('../Dockerfile', import.meta.url), 'utf8');
+  assert.match(dockerfile, /(?:^|\n)\s+git\s*\\/m);
+});
+
 // La memoria durable, probada contra un remoto de verdad pero sin red: un repo desnudo en
 // disco hace de GitHub. Lo que se comprueba es lo único que importa: que el trabajo salga del
 // disco antes de que el host lo borre y que vuelva entero cuando vuelva a arrancar.
