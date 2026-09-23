@@ -2,7 +2,9 @@
 import { previewEntry } from './preview.mjs';
 import { git } from './repo.mjs';
 import { evidenceList } from './ledger.mjs';
-import { visualState, shotFreshness, judgmentsOf, closesNow } from './visual.mjs';
+import { workBacklog } from './work.mjs';
+import { visualState, shotFreshness, judgmentsOf, closesNow, judgmentVerdictFor } from './visual.mjs';
+import { buildObligations } from './obligations.mjs';
 
 export function deliveryAcceptance(room, { preview } = {}) {
   if (room.settings?.planOnly) return { state: 'plan', blockers: [], preview: null };
@@ -21,6 +23,9 @@ export function deliveryAcceptance(room, { preview } = {}) {
   if (visual && !page) add('preview', 'Falta una vista previa del producto',
     'Construir y conectar el punto de entrada del producto. Una prueba de imports no es el entregable. Abrirlo y comprobar sus interacciones.');
   const items = Object.values(room.work?.items || {});
+  const backlog = workBacklog(room);
+  if (backlog.length) add('scope', `${backlog.length} partes aprobadas todavía no se construyeron`,
+    'Continuar la cola por lotes hasta implementar todo el alcance aprobado: ' + backlog.map(i => i.title).join('; '));
   if (!items.length || items.some(i => i.status !== 'integrated')) add('work', 'La implementación está incompleta',
     'Resolver las tareas pendientes o fallidas y comprobar el resultado integrado.');
   const head = room.repo.head;
@@ -37,10 +42,15 @@ export function deliveryAcceptance(room, { preview } = {}) {
   const shots = visualState(room).shots.filter(s => shotFreshness(room, s) === 'fresca');
   if (visual && !shots.length) add('capture', 'No hay capturas actuales del producto',
     'Abrir el producto y capturarlo sobre el commit final. Si no hay navegador disponible, declarar la limitación sin aprobar la entrega.');
-  if (visual && !judgmentsOf(room).some(j => closesNow(room, j))) add('visual-review', 'Falta una revisión visual independiente',
+  const visualClaims = room.agenda && room.artifacts?.proposals ? buildObligations(room).claims.filter(c => c.type === 'juicio') : [];
+  const reviewed = visualClaims.length ? visualClaims.every(c => judgmentVerdictFor(room, c).state === 'juzgada')
+    : judgmentsOf(room).some(j => closesNow(room, j));
+  if (visual && !reviewed) add('visual-review', 'Falta una revisión visual independiente',
     'Un harness con visión que no haya escrito el artefacto debe inspeccionar las capturas actuales y registrar su juicio con evidencia.');
-  if (visual && judgmentsOf(room).some(j => j.verdict === 'no-pasa')) add('visual-rejected', 'La revisión visual detectó problemas',
-    'Resolver los defectos señalados y registrar una nueva revisión; una aprobación aislada no borra los hallazgos.');
+  const rejected = visualClaims.length ? visualClaims.some(c => judgmentVerdictFor(room, c).state === 'no-pasa')
+    : judgmentsOf(room).some(j => j.verdict === 'no-pasa');
+  if (visual && rejected) add('visual-rejected', 'La revisión visual detectó problemas',
+    'Resolver cada defecto señalado y registrar una revisión independiente posterior del mismo criterio con captura actual; una aprobación de otro criterio no lo resuelve.');
   return { state: blockers.length ? 'incomplete' : 'evidenced', blockers,
     preview: { available: page, synthetic: !!p.synthetic, entry: page ? p.entry : null }, visual, verified };
 }

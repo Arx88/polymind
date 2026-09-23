@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { deliveryAcceptance } from '../server/engine/acceptance.mjs';
-import { createRoom, joinRoom, attachScaffold, startWork, addReviewItems, closeReviewPhase, currentTurn, runVerify, git } from '../server/engine/index.mjs';
+import { createRoom, joinRoom, attachScaffold, startWork, addReviewItems, closeReviewPhase, currentTurn, runVerify, git, maybeFinishWork, workIsFinished, workBacklog, setVerifyCommand } from '../server/engine/index.mjs';
 
 function room(task = 'Construir un juego 3d navegable') {
   return { task, settings: {}, repo: { head: 'final' }, artifacts: {},
@@ -89,13 +89,41 @@ test('exhausted review rounds stop, preserving incomplete delivery in the agent 
   assert.match(turn.message, /ENTREGA INCOMPLETA/);
 });
 
-test('a full work quota is not silently exceeded and cannot become successful delivery', async () => {
+test('completed tasks do not consume the repair capacity', async () => {
   const { r } = await reviewFixture({ cap: 1 });
   const before = r.work.order.length;
   closeReviewPhase(r);
-  assert.equal(r.work.order.length, before);
-  assert.equal(r.status, 'closed');
-  assert.equal(r.result.delivery.acceptance.state, 'incomplete');
+  assert.ok(r.work.order.length > before);
+  assert.equal(r.phase.name, 'work');
+  assert.ok(Object.values(r.work.items).some(i => i.title.includes('verificar')));
+});
+
+test('incident 462cra: approved scope drains in batches instead of stopping at 12 lifetime tasks', async () => {
+  const { r } = await reviewFixture({ cap: 12 });
+  r.artifacts.synthesis = { final: Array.from({ length: 24 }, (_, i) => `## Parte ${i + 1}\nImplementar requisito ${i + 1}`).join('\n') };
+  startWork(r, 'p1');
+  assert.equal(r.work.order.length, 12);
+  assert.equal(workBacklog(r).length, 12);
+  for (const i of Object.values(r.work.items)) i.status = 'integrated';
+  assert.equal(workIsFinished(r), false);
+  assert.ok(deliveryAcceptance(r).blockers.some(b => b.code === 'scope'));
+  assert.equal(maybeFinishWork(r), false);
+  assert.equal(r.work.order.length, 24);
+  assert.equal(workBacklog(r).length, 0);
+  maybeFinishWork(r);
+  assert.equal(r.work.order.length, 24, 'polling does not duplicate scope');
+  for (const i of Object.values(r.work.items)) i.status = 'integrated';
+  assert.equal(maybeFinishWork(r), true);
+});
+
+test('a test suite introduced after scaffolding is discovered and actually executed', async () => {
+  const { r } = await reviewFixture();
+  fs.writeFileSync(path.join(r.repo.dir, 'package.json'), JSON.stringify({ scripts: { test: 'node -e "process.exit(1)"' } }));
+  git(r.repo, ['add', 'package.json']);
+  const measurement = await runVerify(r);
+  assert.equal(measurement.ran, true);
+  assert.equal(measurement.ok, false);
+  assert.equal(r.repo.verify.command, 'npm test');
 });
 
 test('a measured patch tree certifies the identical final commit, not a later commit', async () => {

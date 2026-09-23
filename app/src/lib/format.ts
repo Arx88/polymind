@@ -120,12 +120,14 @@ export const WORK_STATUS_TONE: Record<string, string> = {
 
 // Cómo terminó el debate. Todo en español y con color honesto: verde solo si hubo plan.
 export const OUTCOME_LABEL: Record<string, string> = {
+  incomplete: 'Entrega incompleta',
   decided: 'Completado',
   failed: 'Sin decisión',
   expired: 'Expirado',
   closed: 'Cerrado',
 };
 export const OUTCOME_TONE: Record<string, 'green' | 'amber' | 'red'> = {
+  incomplete: 'amber',
   decided: 'green',
   failed: 'red',
   expired: 'amber',

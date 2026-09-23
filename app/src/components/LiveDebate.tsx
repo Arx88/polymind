@@ -9,6 +9,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Avatar } from './Avatar';
+import { DeliveryJourney } from './DeliveryJourney';
 import { Icon } from './Icons';
 import { clock, harnessColor, plural } from '../lib/format';
 import type { LiveMember, Phase, Room } from '../lib/types';
@@ -336,6 +337,7 @@ export function LiveDebate({ room, connected, onOpenDissent }: { room: Room; con
         })}
       </div>
 
+      {['work', 'review'].includes(room.phase) && <div className="liveProductJourney"><DeliveryJourney room={room} /></div>}
       {/* 1b · Una sola línea para el disenso: el detalle vive en su pestaña, aquí solo
           importa saber que el consenso de la cabecera no cuenta toda la historia. */}
       {(live.dissent?.contestedCount > 0 || live.dissent?.convergenceWithoutEvidence?.count > 0 || live.dissent?.vote?.collapsed) && (

@@ -16,6 +16,8 @@ import { macroOf, turnHoldMs, recursionRounds } from './settings.mjs';
 import { rankOptions, decideTop } from './tally.mjs';
 import { finishRoom, closeRoom } from './result.mjs';
 import { deliveryAcceptance } from './acceptance.mjs';
+import { captureInBackground } from './visual.mjs';
+import { baselineInBackground } from './repo.mjs';
 import {
   closeAudit, startWork, maybeFinishWork, closeWork, approvedImprovements, sweepClaims,
   reviewIsCovered, reviewState, improvementsFromReview, addReviewItems, workBusyReason,
@@ -245,6 +247,9 @@ export function enterPhase(room, name, extraData = {}) {
       // Revisión posterior al trabajo: cada mejora integrada recibe un veredicto de otro
       // agente. Con «trabajo extraordinario» lo que aún se pueda mejorar vuelve a la cola.
       d.review = { revisados: {}, round: (d.round || 0) + 1, startedAt: now() };
+      // Run the final-tree checks, not just the checks of individual patches.
+      captureInBackground(room, { reason: 'revisión final del producto' });
+      if (!deliveryAcceptance(room).verified) baselineInBackground(room, () => { room.__changed = true; });
       const integradas = room.work ? room.work.order.filter(id => room.work.items[id]?.status === 'integrated').length : 0;
       const autores = new Set(room.work ? room.work.order.map(id => room.work.items[id]?.claimant).filter(Boolean) : []);
       d.review.soloAutor = autores.size >= activeAgents(room).length;
@@ -645,19 +650,21 @@ export function closeReviewPhase(room) {
   const ronda = d.review?.round || 1;
   const sugerencias = improvementsFromReview(room, { round: ronda });
   const acceptance = deliveryAcceptance(room);
-  const missingPreview = acceptance.blockers.find(b => b.code === 'preview');
-  const hasRepairCapacity = room.work.order.length + sugerencias.length < room.settings.repo.maxWorkItems;
-  if (missingPreview && hasRepairCapacity) {
-    sugerencias.push({ title: missingPreview.title, claim: missingPreview.title,
-      evidence: 'El servidor no encuentra una página del producto; el diagnóstico de módulos no cuenta como entrega.',
-      action: missingPreview.action, severity: 'high', files: [], source: 'delivery', by: null });
+  const repairs = acceptance.blockers.filter(b => ['preview', 'tests', 'visual-rejected'].includes(b.code));
+  for (const repair of repairs) {
+    if (sugerencias.some(s => s.title === repair.title)) continue;
+    sugerencias.push({ title: repair.title, claim: repair.title,
+      evidence: 'Puerta de aceptación del producto: ' + repair.action,
+      action: repair.code === 'tests'
+        ? 'Crear o reparar pruebas ejecutables que comprueben las interacciones y criterios solicitados. En proyectos npm, declarar scripts.test en package.json: el servidor lo detectará y ejecutará. No usar un comando vacío ni assertions que siempre pasen. ' + repair.action
+        : repair.action, severity: 'high', files: [], source: 'delivery', by: null });
   }
   room.artifacts.deliveryAcceptance = acceptance;
-  if (missingPreview && !hasRepairCapacity) {
-    log(room, null, 'work', 'La entrega no tiene página del producto. Se alcanzó el límite de tareas: el cierre conservará esta falta como entrega incompleta, no como aprobación.');
-  }
   const maxRondas = room.settings.repo?.reviewRounds || 2;
-  const puedeSeguir = (room.settings.extraordinary || !!missingPreview) && sugerencias.length && ronda < maxRondas;
+  const scopeAdded = ensureWorkItems(room);
+  const retry = Object.values(room.work.items).filter(i => ['failed', 'skipped'].includes(i.status));
+  const actionable = sugerencias.filter(s => room.settings.extraordinary || s.source === 'delivery' || s.severity !== 'low');
+  const puedeSeguir = ronda < maxRondas && (scopeAdded.length || retry.length || actionable.length);
 
   // Los veredictos se guardan ANTES de dejar la fase: el informe congelado se arma después,
   // cuando `room.phase` ya es otra cosa, y sin este registro diría que nadie revisó nada.
@@ -674,10 +681,11 @@ export function closeReviewPhase(room) {
   };
 
   if (puedeSeguir) {
-    const nuevas = addReviewItems(room, sugerencias);
+    for (const item of retry) Object.assign(item, { status: 'open', claimant: null, finishedAt: null });
+    const nuevas = addReviewItems(room, actionable);
     room.work.reviewRounds = ronda;
     log(room, null, 'phase',
-      `La revisión encontró ${plural(nuevas.length, 'mejora')} más: vuelven a la cola de trabajo (ronda ${ronda + 1} de revisión por delante).`);
+      `La aceptación devuelve ${plural(nuevas.length + scopeAdded.length + retry.length, 'tarea')} a construcción (ronda ${ronda + 1}). El alcance aprobado y los defectos no son mejoras opcionales.`);
     enterPhase(room, 'work', { winnerId: d.winnerId });
     return;
   }

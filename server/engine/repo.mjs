@@ -401,6 +401,7 @@ export function normalizeVerify(verify, timeoutMs = null) {
 export async function runVerify(room, { timeoutMs = null, kind = 'verify', itemId = null, by = null } = {}) {
   const repo = room.repo;
   if (!repo) return { ran: false, reason: 'sin-repo' };
+  discoverProjectVerification(room);
   if (!repo.verify) return { ran: false, reason: 'sin-comando-de-verificacion' };
   const verifiedHead = repo.head || null;
   // Bind the executed check to an exact index tree. If the command changes the
@@ -465,6 +466,8 @@ export async function runBaseline(room) {
 // avisa por callback. Una sala que arranca con la suite en rojo debe poder decirlo.
 export function baselineInBackground(room, onChange = null) {
   if (!room.repo) return null;
+  if (room.__baselinePromise) return room.__baselinePromise;
+  discoverProjectVerification(room);
   if (!room.repo.verify) { room.repo.baseline = null; return null; }
   room.repo.baseline = { status: 'running', at: Date.now() };
   const promise = runBaseline(room)
@@ -481,6 +484,18 @@ export function baselineInBackground(room, onChange = null) {
     });
   room.__baselinePromise = promise;
   return promise;
+}
+
+// Greenfield projects acquire their test suite after attachment. Apply the same
+// discovery policy as attachScaffold, but never override a human opt-out.
+export function discoverProjectVerification(room) {
+  const repo = room.repo;
+  if (!repo?.greenfield || repo.verify || repo.verifyDisabled) return;
+  const found = detectVerifyCommand(repo.dir);
+  if (!found) return;
+  repo.verify = normalizeVerify(found.command);
+  repo.verifySource = { detected: true, why: found.why };
+  log(room, null, 'work', `Verificación detectada en el proyecto construido: ${found.command} (${found.why}).`);
 }
 
 // ---------------------------------------------------------------- lectura
@@ -788,6 +803,7 @@ export function setVerifyCommand(room, { command = '', timeoutMs = null, rerunBa
   }
   const before = repo.verify?.command || null;
   repo.verify = next;
+  repo.verifyDisabled = !next;
   repo.verifySource = next ? { detected: false, why: 'fijado a mano desde el panel' } : null;
   repo.baseline = null;
   log(room, null, 'work', next

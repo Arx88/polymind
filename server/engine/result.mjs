@@ -426,7 +426,7 @@ export function finishRoom(room, winnerId = null) {
     task: room.task,
     title: room.title,
     language: room.settings.language,
-    outcome: 'decided',
+    outcome: deliveryInfo.acceptance?.state === 'incomplete' ? 'incomplete' : 'decided',
     winner: {
       id: winner.id,
       title: winner.title,

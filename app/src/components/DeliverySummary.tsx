@@ -1,6 +1,7 @@
 import type { Room } from '../lib/types';
 import { Icon } from './Icons';
 import { deliveryEvidence } from '../lib/delivery';
+import { DeliveryJourney } from './DeliveryJourney';
 
 /** Evidence is deliberately separate from consensus. No inferred quality score. */
 export function DeliverySummary({ room }: { room: Room }) {
@@ -13,11 +14,12 @@ export function DeliverySummary({ room }: { room: Room }) {
   const independentFinalReview = work?.items.filter(i => i.status === 'integrated').every(i => work.review?.reviewedItems?.some(r => r.id === i.id && r.by.some(name => name !== i.byName)));
   const acceptanceMissing = hasWork && (verified < integrated || integrated === 0 || !!work?.stats.open || !!work?.stats.skipped || !!work?.stats.failed || !independentFinalReview || !work?.review || work.review.unknown || !!work.review.pending.length);
   return <section className="deliverySummary" aria-label="Estado de la entrega">
+    <DeliveryJourney room={room} />
     <div className="deliveryHeading"><Icon name="shield" size={20}/><h3>Qué está demostrado</h3></div>
     {acceptance?.state === 'incomplete' && <div className="deliveryGate">
       <div className="deliveryGateHeading"><span className="deliveryGateSignal" /><div><small>LA SALA CERRÓ · EL PRODUCTO SIGUE PENDIENTE</small><h3>Esta entrega necesita trabajo</h3></div></div>
       <p>El consenso no sustituye a un resultado que puedas abrir, usar y comprobar.</p>
-      <ol>{acceptance.blockers.map(blocker => <li key={blocker.code}><b>{blocker.title}</b><span>{blocker.action}</span></li>)}</ol>
+      <details><summary>{acceptance.blockers.length} condiciones pendientes · ver acciones</summary><ol>{acceptance.blockers.map(blocker => <li key={blocker.code}><b>{blocker.title}</b><span>{blocker.action}</span></li>)}</ol></details>
     </div>}
     {room.delivery?.reason === 'sin-proyecto' && <div className="deliveryWarning" role="alert">
       <b>No se produjo el entregable solicitado</b>
@@ -25,7 +27,7 @@ export function DeliverySummary({ room }: { room: Room }) {
     </div>}
     {acceptanceMissing && !acceptance && <div className="deliveryWarning"><b>Entrega pendiente de aceptación</b><p>Cerrar la sala no certifica el producto. Faltan tareas, pruebas ejecutadas o revisión final completa. Para entregables visuales también debes comprobar su apariencia e interacciones.</p></div>}
     <div className="deliveryGrid">
-      <div><span>Decisión</span><strong>{result.outcome === 'decided' ? 'Plan disponible' : 'Sin plan aprobado'}</strong><small>{unresolved ? `${unresolved} puntos sin acuerdo` : 'Consulta las posiciones y el disenso'}</small></div>
+      <div><span>Decisión</span><strong>{result.winner ? 'Plan disponible' : 'Sin plan aprobado'}</strong><small>{unresolved ? `${unresolved} puntos sin acuerdo` : 'Consulta las posiciones y el disenso'}</small></div>
       <div><span>Implementación</span><strong>{hasWork ? `${integrated} mejoras integradas` : 'Sin cambios registrados'}</strong><small>{hasWork ? `${reviewed} con revisión de otro agente` : room.repo ? 'No se registró una fase de trabajo' : room.delivery?.reason === 'sin-proyecto' ? 'No se pudo preparar el proyecto' : 'Este trabajo entrega una propuesta'}</small></div>
       <div><span>Pruebas ejecutadas</span><strong>{hasWork ? `${verified} mejoras con pruebas en verde` : 'Sin ejecución registrada'}</strong><small>Las comprobaciones propuestas no son pruebas ejecutadas.</small></div>
     </div>

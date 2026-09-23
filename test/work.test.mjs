@@ -229,6 +229,7 @@ async function drive(room, behaviors, { rounds = 30, stop = null } = {}) {
       if (room.agents[id]?.status === 'absent') continue;
       act(room, id, behaviors[id]);
       if (room.__pendingVerify) await settle(room);
+      if (room.__baselinePromise) { await room.__baselinePromise; maybeAdvance(room); }
     }
     await new Promise(resolve => setImmediate(resolve));
   }
@@ -600,10 +601,10 @@ test('trabajo: la línea base ya en rojo no se le achaca al parche', async () =>
   await drive(room, behaviors(ids, {
     findings: [FIND_TOTAL],
     patch: () => ({ summary: 'multiplica por qty', diff: PATCH_DIFF_ONLY }),
-    review: () => ({ itemId: room.work.pending, verdict: 'approve', notes: 'Cambio correcto.' }),
-  }));
+      review: () => ({ itemId: room.work.pending, verdict: 'approve', notes: 'Cambio correcto.' }),
+    }), { stop: r => r.phase.name === 'review' });
 
-  const w = room.result.work;
+    const w = workSummary(room);
   assert.equal(w.baseline.ok, false, 'el resultado guarda que la línea base estaba roja');
   assert.equal(w.items[0].status, 'integrated', 'no se bloquea el trabajo por un fallo que ya existía');
   assert.equal(w.items[0].verify.preExisting, true, 'y queda marcado como fallo preexistente en el resultado');

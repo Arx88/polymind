@@ -169,10 +169,11 @@ export interface WorkState {
   pending: { patchId: string; itemId: string; status: string } | null;
   stats: {
     items: number; integrated: number; reverted: number; failed: number; skipped: number; open: number;
-    unreviewed: number; deferredFindings: number; skippedByCap: number; verifyRuns: number;
+    unreviewed: number; deferredFindings: number; skippedByCap: number; backlog?: number; verifyRuns: number;
     files: number; insertions: number; deletions: number; list: { path: string; insertions: number; deletions: number }[];
   };
   baseline: VerifyRun | null;
+  backlog?: { title: string; pointId: string | null; files: string[] }[];
   verifyCommand: string | null;
   verifySource?: { detected: boolean; why: string } | null;
   review?: WorkReviewState | null;
@@ -502,7 +503,7 @@ export interface RoomResult {
   task: string;
   title: string;
   language: string;
-  outcome: 'decided' | 'failed' | 'expired';
+  outcome: 'decided' | 'incomplete' | 'failed' | 'expired';
   reason?: string;
   // Entrega congelada con el resultado: código (rama y partes integradas) o solo un plan, con el
   // motivo. Es lo que evita que «no hay código» quede sin explicación en el informe.

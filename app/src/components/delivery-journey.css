@@ -1,0 +1,30 @@
+.deliveryJourney{--journey-ink:#14244f;--journey-muted:#536584;color:var(--journey-ink);margin:0 0 24px;border:1px solid #dce6f7;border-radius:24px;overflow:hidden;background:#fff;container-type:inline-size}
+.deliveryJourneyIntro{display:grid;grid-template-columns:1.1fr 1fr;align-items:center;background:#f3f7ff;min-width:0}
+.deliveryJourneyCopy{padding:32px 0 32px 28px;position:relative;z-index:1}
+.deliveryJourneyEyebrow{font-size:10px;font-weight:800;letter-spacing:.14em;color:#3862b3}
+.deliveryJourneyCopy h3{font-size:clamp(23px,3cqi,32px);line-height:1.18;letter-spacing:-.04em;margin:12px 0!important;max-width:16ch;color:var(--journey-ink)}
+.deliveryJourneyCopy p{font-size:13px;line-height:1.7;max-width:43ch;color:var(--journey-muted);margin:0 0 20px}
+.deliveryJourneyArt{width:100%;height:auto;aspect-ratio:3/2;object-fit:contain;mix-blend-mode:multiply}
+.deliveryJourneyMeter{max-width:320px;display:grid;gap:8px;font-size:12px}
+.deliveryJourneyMeter span b{font-size:22px;color:#285aff;font-variant-numeric:tabular-nums}
+.deliveryJourneyMeter small{font-size:10px;line-height:1.5;color:var(--journey-muted)}
+.deliveryJourneyMeter progress{appearance:none;border:0;border-radius:8px;height:6px;width:100%;background:#dce6fa;overflow:hidden}
+.deliveryJourneyMeter progress::-webkit-progress-bar{background:#dce6fa}
+.deliveryJourneyMeter progress::-webkit-progress-value{background:#2c61ff;border-radius:8px}
+.deliveryJourneyMeter progress::-moz-progress-bar{background:#2c61ff;border-radius:8px}
+.deliveryEvidenceSteps{list-style:none;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));padding:24px!important;margin:0!important;gap:12px}
+.deliveryEvidenceSteps li{min-width:0;padding:16px 12px;background:#f8faff;border:1px solid #e2eafa;border-radius:16px;display:flex;flex-direction:column;align-items:flex-start;transition:border-color 200ms ease,background 200ms ease}
+.evidenceStepTop{display:flex;align-items:center;justify-content:space-between;width:100%;margin-bottom:12px}
+.evidenceStepTop img{object-fit:contain;width:44px;height:44px}
+.evidenceStepTop>span{font-size:10px;font-weight:700;color:#627497}
+.deliveryEvidenceSteps h4{font-size:13px;margin:0 0 8px;font-weight:800}
+.deliveryEvidenceSteps li>b{font-size:11px;line-height:1.6;font-weight:600}
+.deliveryEvidenceSteps li>small{font-size:10px;line-height:1.6;color:var(--journey-muted);margin:6px 0 16px;overflow-wrap:anywhere}
+.evidenceState{margin-top:auto;display:flex;align-items:center;gap:6px;font-size:10px;font-weight:700;color:#78572b}
+.evidenceState:before{content:'';width:6px;height:6px;border:1.5px solid currentColor;border-radius:50%}
+.evidenceComplete .evidenceState{color:#087656}.evidenceComplete .evidenceState:before{background:currentColor}
+.liveProductJourney{padding:0 24px}.deliveryBacklog{padding:0 24px 24px;font-size:12px;line-height:1.7}.deliveryBacklog summary{cursor:pointer;min-height:44px;display:list-item;padding:12px 0;color:#284d95;font-weight:700}.deliveryBacklog li{margin:8px 0}.deliveryBacklog p{color:var(--journey-muted)}
+.deliveryBacklog summary:focus-visible{outline:3px solid #709dff;outline-offset:4px;border-radius:4px}
+@container(max-width:640px){.deliveryJourneyIntro{grid-template-columns:1fr}.deliveryJourneyCopy{padding:24px 24px 0}.deliveryJourneyCopy h3{max-width:25ch}.deliveryJourneyArt{max-height:220px;object-fit:contain}.deliveryEvidenceSteps{grid-template-columns:repeat(2,minmax(0,1fr));padding:16px!important;gap:12px}}
+@media(prefers-reduced-motion:no-preference){.deliveryJourneyIntro{animation:journeyEnter 240ms ease-out}@keyframes journeyEnter{from{opacity:.5;transform:translateY(6px)}to{opacity:1;transform:none}}}
+@media(prefers-reduced-motion:reduce){.deliveryEvidenceSteps li{transition:none}}

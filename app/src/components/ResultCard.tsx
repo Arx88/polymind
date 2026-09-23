@@ -32,7 +32,7 @@ export function ResultCard({ room, compactHeader = false, onChanged }: { room: R
   const result = room.result;
   if (!result) return null;
 
-  if (result.outcome !== 'decided' || !result.winner) {
+  if (!result.winner) {
     return (
       <div className="resultCard" style={{ borderColor: '#fecaca', background: 'var(--red-soft)' }}>
         <h3 style={{ color: 'var(--red)' }}><Icon name="info" size={18} /> El debate no produjo un plan</h3>
@@ -107,7 +107,7 @@ export function ResultCard({ room, compactHeader = false, onChanged }: { room: R
             {(result.obligations.counts.vision || 0) > 0 && (
               <Tag tone={(result.obligations.counts.sinFirmar || 0) > 0 ? 'red' : 'green'}>
                 {result.obligations.counts.vision} con visión declarada
-                {(result.obligations.counts.sinFirmar || 0) > 0 ? ` · ${result.obligations.counts.sinFirmar} firmas sin poner` : ' · todos firmaron'}
+                {!result.obligations.counts.capturas ? ' · sin capturas para revisar' : (result.obligations.counts.sinFirmar || 0) > 0 ? ` · ${result.obligations.counts.sinFirmar} firmas sin poner` : ' · consulta los juicios'}
               </Tag>
             )}
             {result.obligations.evidence.total > 0 && (

@@ -409,9 +409,10 @@ async function launchChrome(chrome, { timeoutMs = 30_000 } = {}) {
   return { child, wsUrl, profile };
 }
 
-class Cdp {
-  constructor(ws) {
+export class Cdp {
+  constructor(ws, { timeoutMs = 20_000 } = {}) {
     this.ws = ws;
+    this.timeoutMs = timeoutMs;
     this.seq = 0;
     this.pending = new Map();
     this.waiters = [];
@@ -437,14 +438,27 @@ class Cdp {
         if (w.method === msg.method) { this.waiters.splice(this.waiters.indexOf(w), 1); w.resolve(msg.params); }
       }
     });
-    ws.addEventListener('error', () => { for (const w of [...this.waiters]) w.reject(new Error('el WebSocket del navegador falló')); });
+    const disconnected = () => {
+      const error = new Error('el navegador cerró la conexión durante la captura');
+      for (const pending of this.pending.values()) pending.reject(error);
+      this.pending.clear();
+      for (const waiter of this.waiters.splice(0)) waiter.reject(error);
+    };
+    ws.addEventListener('error', disconnected);
+    ws.addEventListener('close', disconnected);
   }
 
   send(method, params = {}, sessionId = null) {
     const id = ++this.seq;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      this.ws.send(JSON.stringify(sessionId ? { id, method, params, sessionId } : { id, method, params }));
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`el navegador no respondió a ${method} en ${this.timeoutMs} ms`));
+      }, this.timeoutMs);
+      const finish = fn => value => { clearTimeout(timer); this.pending.delete(id); fn(value); };
+      this.pending.set(id, { resolve: finish(resolve), reject: finish(reject) });
+      try { this.ws.send(JSON.stringify(sessionId ? { id, method, params, sessionId } : { id, method, params })); }
+      catch (err) { this.pending.get(id)?.reject(err); }
     });
   }
 
@@ -620,24 +634,35 @@ export function captureInBackground(room, { by = null, reason = 'trabajo', force
   if (room?.__visualRun) return { started: false, because: 'ya hay una captura en curso' };
   if (!visualConfig(room).enabled) return { started: false, because: 'la evidencia visual está desactivada en esta sala' };
   if (!room.repo) return { started: false, because: 'la sala no escribe en ningún proyecto' };
+  if (room.work?.pending) return { started: false, because: 'esperando a que el parche en vuelo se integre' };
   if (!chromePath()) {
     room.artifacts.visualNotTested = { at: now(), because: 'no hay Chrome/Chromium/Edge en esta máquina' };
     return { started: false, because: 'no hay navegador headless en esta máquina: la evidencia visual queda `not-tested`' };
   }
   if (!force && freshShots(room).length) return { started: false, because: 'ya hay capturas frescas de este commit' };
   room.artifacts.visualRunning = { at: now(), by, reason };
-  const promise = captureRoom(room, { by, reason }).catch(() => null).finally(() => {
+  const requestedHead = room.repo.head;
+  const promise = captureRoom(room, { by, reason }).catch(err => {
+    room.artifacts.visualNotTested = { at: now(), because: String(err?.message || err) };
+    return null;
+  }).finally(() => {
     delete room.artifacts.visualRunning;
     if (room.__visualRun === promise) delete room.__visualRun;
     // La captura retiene el cierre de la revisión (ver `reviewIsCovered`): al terminar hay que
     // despertar a quien espera turno, o la sala se queda mirando una promesa ya resuelta.
     room.__changed = true;
+    // A build can finish while an older capture is still running. Do not lose
+    // the final capture just because the original request owned the lock.
+    if (room.status !== 'closed' && room.repo?.head !== requestedHead && !room.work?.pending) {
+      captureInBackground(room, { by, reason: 'el proyecto cambió durante la captura' });
+    }
   });
   room.__visualRun = promise;
   return { started: true, because: `capturando el artefacto (${reason})` };
 }
 
 export async function captureRoom(room, { by = null, reason = 'trabajo', shots = null, runner = null } = {}) {
+  const capturedHead = room.work?.pending ? null : room.repo?.head || null;
   await refreshPreviewEntry(room);
   const cfg = visualConfig(room);
   const list = shots || await shotsFor(room);
@@ -651,7 +676,8 @@ export async function captureRoom(room, { by = null, reason = 'trabajo', shots =
   }
   const res = await (runner || runCaptures)(room, { shots: list, cfg });
   const dir = capturesDir(room);
-  const head = room.repo?.head || null;
+  // Never label an older image with a commit integrated while the browser ran.
+  const head = capturedHead === room.repo?.head && !room.work?.pending ? capturedHead : null;
   const stored = [];
   if (res.entries?.length && dir) {
     try { fs.mkdirSync(dir, { recursive: true }); } catch { /* ya existe */ }
@@ -751,8 +777,8 @@ export function visionDuty(room, claims = []) {
   }
   if (!fresh) {
     return {
-      judges, missing: 0, claims: [], fresh, total: judges.length * juicios.length, seers: judges.length,
-      note: `Hay ${plural(judges.length, 'modelo')} con visión declarada, pero ninguna captura fresca del commit actual: sin imagen no hay firma que exigir.`,
+      judges, missing: judges.length * juicios.length, claims: [], fresh, total: judges.length * juicios.length, seers: judges.length,
+      note: `Hay ${plural(judges.length, 'modelo')} con visión declarada, pero ninguna captura fresca del commit actual: la revisión está pendiente, no firmada.`,
     };
   }
   const out = [];
@@ -834,7 +860,7 @@ function resolveCaptures(room, cited) {
 export function closesNow(room, judgment) {
   if (!judgment || judgment.verdict !== 'pasa' || judgment.independence !== 'ajeno') return false;
   const shots = visualState(room).shots;
-  const cited = (judgment.captures || []).map(c => shots.find(s => s.id === c.id || (c.hash && s.hash === c.hash)) || null);
+  const cited = (judgment.captures || []).map(c => shots.find(s => c.hash ? s.hash === c.hash : s.id === c.id) || null);
   if (!cited.length || cited.some(s => !s)) return false;
   return cited.some(s => shotFreshness(room, s) === 'fresca');
 }
@@ -857,8 +883,8 @@ export function judgmentVerdictFor(room, claim) {
       independent: null, judgedBy: null, captures: [], blocks: false,
     };
   }
-  const negatives = js.filter(j => j.verdict === 'no-pasa');
-  const closes = js.find(j => closesNow(room, j));
+  const closes = js.filter(j => closesNow(room, j)).sort((a, b) => (b.at || 0) - (a.at || 0))[0];
+  const negatives = js.filter(j => j.verdict === 'no-pasa' && (!closes || !j.at || !closes.at || j.at >= closes.at));
   const cerradoPeroViejo = js.find(j => j.closes && !closesNow(room, j) && j.verdict === 'pasa' && j.independence === 'ajeno');
   if (negatives.length) {
     const n = negatives[0];

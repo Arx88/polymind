@@ -14,7 +14,7 @@ import {
   dissentReport, proposalSimilarity,
 } from './agenda.mjs';
 import { phaseMsLeft, liveProposals, reviseAuthors, canStart, phaseInputsComplete } from './phases.mjs';
-import { repoSummary, workSummary, workItemForTurn, reviewAssignments, planText } from './work.mjs';
+import { repoSummary, workSummary, workItemForTurn, reviewAssignments, planText, canClaimWork, reservedVisualReviewer } from './work.mjs';
 import { obligationsBrief, buildObligations } from './obligations.mjs';
 import { visualBrief } from './visual.mjs';
 import { deliveryAcceptance } from './acceptance.mjs';
@@ -798,7 +798,7 @@ function workTurn(room, agentId) {
   // movimiento que el servidor va a rechazar no es un aviso, es un bucle (harness reintentando
   // un 401 tras otro mientras la sala no avanza).
   const agent = room.agents[agentId];
-  const canClaim = !!agent && agent.status !== 'absent' && !agent.overBudget && !agent.workOptOut;
+  const canClaim = canClaimWork(room, agentId);
 
   // Con un parche en vuelo, el árbol no admite otro: si puedes revisarlo tú, revisarlo es
   // lo que desatasca el trabajo (pedir tu propio parche sería un rechazo anunciado). Va
@@ -862,7 +862,9 @@ function workTurn(room, agentId) {
     return {
       ...base,
       action: 'wait',
-      message: 'Estás fuera del trabajo del repo (observador o sin presupuesto): no puedes reclamar tareas. Sigue pidiendo /turn para ver avanzar el trabajo.',
+      message: reservedVisualReviewer(room) === agentId
+        ? 'Tu rol es revisión visual independiente: no escribas el artefacto. Revisa los parches cuando lleguen y luego abre las capturas del producto, prueba sus interacciones y firma cada criterio visual. Sigue consultando /turn; no envíes pass para esperar.'
+        : 'Estás fuera del trabajo del repo (observador o sin presupuesto): no puedes reclamar tareas. Sigue pidiendo /turn para ver avanzar el trabajo.',
       payloadSchema: [],
     };
   }
@@ -1190,7 +1192,7 @@ export function deliveryOf(room) {
     planOnly: !!room.settings?.planOnly,
     branch: room.repo?.branch || null,
     warning: room.artifacts?.deliveryWarning || null,
-    acceptance: room.status === 'closed' ? deliveryAcceptance(room) : undefined,
+    acceptance: room.status === 'closed' || ['work', 'review'].includes(room.phase?.name) ? deliveryAcceptance(room) : undefined,
   };
 }
 

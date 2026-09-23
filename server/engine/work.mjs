@@ -21,10 +21,10 @@ import { log, nameOf, activeAgents, proposalOf } from './state.mjs';
 import { consensusReport, normalizeAgenda } from './agenda.mjs';
 import {
   stagePatch, unstagePatch, commitStaged, runVerify, workStats, commitLog, repoIndex,
-  searchRepo, baselineInBackground, revertCommit, commitFiles,
+  searchRepo, baselineInBackground, revertCommit, commitFiles, discoverProjectVerification,
 } from './repo.mjs';
 import { claimRefs, isCreating, scopeVerdict, fileConflicts } from './ledger.mjs';
-import { captureInBackground, captureHoldMs } from './visual.mjs';
+import { captureInBackground, captureHoldMs, visionDuty, visualConfig, judgmentVerdictFor, visionJudges, independenceOf } from './visual.mjs';
 import { buildObligations } from './obligations.mjs';
 
 // Un único gancho para que el trabajo asíncrono (verificación) persista y avise
@@ -327,7 +327,7 @@ export function planImprovements(room) {
   if (out.length) return out;
 
   // Sin puntos decididos, el plan habla por sí solo: una tarea por sección.
-  const max = Number(room.settings?.repo?.maxWorkItems) || 6;
+  const max = Infinity; // The batch size must never truncate the approved specification.
   const plan = planText(room);
   const secciones = planSectionList(plan, max);
   if (!secciones.length) return [];
@@ -481,7 +481,7 @@ export function ensureWorkItems(room, { max = 0 } = {}) {
   const yaTienen = new Set(work.order.map(id => work.items[id]?.pointId || work.items[id]?.title).filter(Boolean));
   const pendientes = workFrom(room).filter(imp => !yaTienen.has(imp.pointId || imp.title));
   const limite = max || Number(room.settings?.repo?.maxWorkItems) || 6;
-  const hueco = Math.max(0, limite - work.order.length);
+  const hueco = Math.max(0, limite - openItems(room).length);
   const creadas = [];
   for (const imp of pendientes.slice(0, hueco)) {
     const id = `w${++work.seq}`;
@@ -518,7 +518,7 @@ export function ensureWorkItems(room, { max = 0 } = {}) {
     log(room, null, 'work',
       `Nueva tarea ${id} de la ronda ${room.rounds || 1}: «${gist(imp.title, 90)}»${imp.files.length ? ` (${imp.files.join(', ')})` : ''}.`);
   }
-  work.skippedByCap = Math.max(work.skippedByCap || 0, pendientes.length - creadas.length);
+    work.skippedByCap = pendientes.length - creadas.length;
   work.approvedTotal = workFrom(room).length;
   annotateItems(room, creadas);
   return creadas;
@@ -544,13 +544,32 @@ export function openItems(room) {
 export function workIsFinished(room) {
   const work = room.work;
   if (!work) return true;
-  if (!work.order.length) return true;
-  return openItems(room).length === 0;
+  return openItems(room).length === 0 && workBacklog(room).length === 0;
+}
+
+// Read-only, including legacy rooms whose original queue silently omitted scope.
+export function workBacklog(room) {
+  if (!room.work || !room.agenda || !room.artifacts?.proposals) return [];
+  const assigned = new Set(Object.values(room.work.items).map(i => i.pointId || i.title));
+  return workFrom(room).filter(i => !assigned.has(i.pointId || clampStr(i.title, 140)));
 }
 
 function canWork(room, agentId) {
   const a = room.agents[agentId];
   return !!a && a.status !== 'absent' && !a.overBudget && !a.workOptOut;
+}
+
+// Keep one genuinely independent visual reviewer while other builders are
+// available. Otherwise every participant authors code and nobody can certify it.
+export function reservedVisualReviewer(room) {
+  if (!visualConfig(room).enabled || !/\b(visual|web|html|ui|ux|3d|juego|game|landing|dashboard|interfaz|navegable|shader)\b/i.test(`${room.task} ${room.criteria}`)) return null;
+  const builders = activeAgents(room).filter(id => canWork(room, id));
+  if (builders.length < 2) return null;
+  return visionJudges(room).find(j => builders.includes(j.id) && independenceOf(room, j.id).level === 'ajeno')?.id || null;
+}
+
+export function canClaimWork(room, agentId) {
+  return canWork(room, agentId) && reservedVisualReviewer(room) !== agentId;
 }
 
 function claimedItemOf(room, agentId) {
@@ -563,8 +582,8 @@ function claimedItemOf(room, agentId) {
 export function claimItem(room, agentId, payload = {}) {
   const work = room.work;
   const agent = room.agents[agentId];
-  if (!canWork(room, agentId)) {
-    throw new DebateError('unauthorized', `No puedes reclamar trabajo ahora (${agent?.overBudget ? 'presupuesto agotado' : agent?.workOptOut ? 'te retiraste del trabajo' : 'no disponible'}).`);
+  if (!canClaimWork(room, agentId)) {
+    throw new DebateError('unauthorized', `No puedes reclamar trabajo ahora (${reservedVisualReviewer(room) === agentId ? 'reservado para revisión visual independiente; revisa parches y capturas' : agent?.overBudget ? 'presupuesto agotado' : agent?.workOptOut ? 'te retiraste del trabajo' : 'no disponible'}).`);
   }
   const mine = claimedItemOf(room, agentId);
   if (mine) {
@@ -745,6 +764,7 @@ export function reviewPatch(room, agentId, payload = {}) {
 
   log(room, agentId, 'review',
     `${nameOf(room, agentId)} aprueba el parche ${patch.id} de «${gist(item.title, 80)}»${notes ? `: ${gist(notes, 120)}` : ''}.`);
+  discoverProjectVerification(room);
   if (!room.repo?.verify) {
     const integration = integrate(room, item, patch, { ran: false, reason: 'sin comando de verificación declarado' });
     return { item, patch, verdict, integration, warnings: [...cuts, 'no hay comando de verificación: el parche se integra sin comprobar'] };
@@ -960,6 +980,7 @@ export function sweepClaims(room) {
 export function maybeFinishWork(room) {
   const work = room.work;
   if (!work) return true;
+  ensureWorkItems(room);
   if (workIsFinished(room)) return true;
   const able = activeAgents(room).filter(id => canWork(room, id));
   const pending = work.pending ? work.patches[work.pending] : null;
@@ -1316,6 +1337,15 @@ export function reviewState(room) {
 export function reviewIsCovered(room) {
   const items = integradasDe(room);
   if (!items.length) return true;
+  const elapsed = now() - (room.phase.data.review?.startedAt || room.phase.startedAt || now());
+  const evidenceWindow = Math.max(60_000, room.settings.phaseMs?.review || 480_000);
+  if (elapsed < evidenceWindow) {
+    if (room.__baselinePromise) return false;
+    const claims = buildObligations(room).claims.filter(c => c.type === 'juicio');
+    const duty = visionDuty(room, claims);
+    if (visualConfig(room).enabled && duty.seers && claims.length
+      && claims.some(c => !['juzgada', 'no-pasa'].includes(judgmentVerdictFor(room, c).state))) return false;
+  }
   // Una captura en vuelo RETA el cierre de la revisión. El juicio de lo que se ve se firma sobre
   // una imagen, y cerrar mientras el servidor está fotografiando convertía una carrera de reloj en
   // una afirmación «sin captura» (más probable en un host lento, donde la captura tarda más que la
@@ -1389,7 +1419,6 @@ export function improvementsFromReview(room, { round = 1 } = {}) {
   if (!d) return [];
   const work = room.work;
   const nuevas = [];
-  let fuera = 0;
   const seen = new Set();
   for (const [agentId, porItem] of Object.entries(d.revisados || {})) {
     for (const [itemId, r] of Object.entries(porItem || {})) {
@@ -1397,7 +1426,6 @@ export function improvementsFromReview(room, { round = 1 } = {}) {
       const clave = `${r.file || ''}|${r.action}`.toLowerCase();
       if (seen.has(clave)) continue;
       seen.add(clave);
-      if (work.order.length + nuevas.length >= room.settings.repo.maxWorkItems) { fuera += 1; continue; }
       nuevas.push({
         title: clampStr(r.claim || r.action, 110),
         files: r.file ? [r.file] : [],
@@ -1413,11 +1441,6 @@ export function improvementsFromReview(room, { round = 1 } = {}) {
   }
   // Un techo de cola no puede borrar una propuesta de la revisión: si no cabe ahora, se
   // dice cuántas quedaron fuera y por qué, y salen en el resultado como no ejecutadas.
-  if (fuera) {
-    log(room, null, 'work',
-      `${plural(fuera, 'mejora')} de la revisión no ${fuera === 1 ? 'entra' : 'entran'} en la cola de trabajo: ` +
-      `la sala trabaja como máximo ${room.settings.repo.maxWorkItems} tareas a la vez. Quedan registradas como propuestas sin ejecutar.`);
-  }
   return nuevas;
 }
 
@@ -1645,11 +1668,13 @@ export function workSummary(room) {
       open: items.filter(i => !TERMINAL.has(i.status)).length,
       unreviewed: items.filter(i => i.unreviewed).length,
       deferredFindings: work.deferred,
-      skippedByCap: work.skippedByCap || 0,
+      skippedByCap: workBacklog(room).length,
+      backlog: workBacklog(room).length,
       verifyRuns: work.verifyRuns,
       ...stats,
     },
     baseline: work.baseline || repo?.baseline || null,
+    backlog: workBacklog(room).map(i => ({ title: i.title, pointId: i.pointId, files: i.files })),
     verifyCommand: repo?.verify?.command || null,
     verifySource: repo?.verifySource || null,
     // Revisión posterior al trabajo: quién la ha mirado ya y qué falta.

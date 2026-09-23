@@ -862,7 +862,11 @@ test('7 · runner local: conduce dos CLIs simulados sin intervención', async ()
   const pub = await j(`${base}/api/rooms/${room.code}/public`);
   assert.equal(pub.body.room.status, 'closed', 'el debate cerró: ' + JSON.stringify(pub.body.room.phase));
   const res = pub.body.room.result;
-  assert.equal(res.outcome, 'decided');
+  // Los CLIs simulados debaten pero no integran parches: el cierre no puede presentar ese plan
+  // como entrega. El resultado tiene que coincidir con lo que dice la aceptación del producto.
+  const acceptance = res.delivery?.acceptance;
+  assert.equal(res.outcome, acceptance?.state === 'incomplete' ? 'incomplete' : 'decided',
+    'el cierre no llama «decidido» a una entrega que la aceptación da por incompleta');
   assert.ok(res.checks.length >= 2, 'la verificación pasó por el runner');
   assert.ok(res.cost.estTokens > 0, 'coste medido');
   assert.ok(out.stdout.includes('RESULTADO'), 'el runner imprimió el resultado');
