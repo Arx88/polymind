@@ -227,9 +227,9 @@ export function coverageOf(clauses, against, { threshold = 0.34 } = {}) {
 // volver a medirse y nadie puede «descubrir» dos veces lo mismo en ciclos distintos. El árbol
 // entra en la huella: una verificación sobre el parche de la tarea w1 y la línea base no son la
 // misma medición aunque el comando y la salida coincidan.
-export function evidenceHash({ command, commit, output, itemId = null }) {
+export function evidenceHash({ command, commit, output, itemId = null, verifiedTree = null, dirty = false }) {
   const base = `${String(command || '')}\n${String(commit || '')}\n${itemId ? `tarea:${itemId}` : 'arbol:head'}\n${String(output || '')}`;
-  return 'e' + createHash('sha256').update(base).digest('hex').slice(0, 16);
+  return 'e' + createHash('sha256').update(base + (verifiedTree || dirty ? `\ntree:${verifiedTree || 'unknown'};dirty:${!!dirty}` : '')).digest('hex').slice(0, 16);
 }
 
 export function evidenceList(room) {
@@ -241,12 +241,12 @@ export function evidenceList(room) {
 // sin `itemId` la medición describe el HEAD de entonces y caduca en cuanto la rama se mueve.
 export function recordEvidence(room, {
   command = '', exitCode = null, ok = null, output = '', commit = null, dirty = false,
-  kind = 'verify', by = null, itemId = null, note = null,
+  kind = 'verify', by = null, itemId = null, note = null, verifiedTree = null,
 } = {}) {
   if (!room?.artifacts) return { entry: null, reused: false };
   const list = evidenceList(room);
   const out = typeof output === 'string' ? output : '';
-  const hash = evidenceHash({ command, commit, output: out, itemId });
+  const hash = evidenceHash({ command, commit, output: out, itemId, verifiedTree, dirty });
   const prev = list.find(e => e.hash === hash);
   if (prev) {
     prev.uses = (prev.uses || 1) + 1;
@@ -262,6 +262,7 @@ export function recordEvidence(room, {
     hash,
     kind,
     command: clampStr(command, 300),
+    verifiedTree,
     exitCode: Number.isFinite(exitCode) ? exitCode : null,
     ok: ok === null ? null : !!ok,
     commit: commit ? String(commit) : null,

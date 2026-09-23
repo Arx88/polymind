@@ -77,6 +77,8 @@ export function PreviewPanel({
   const [error, setError] = useState<string | null>(null);
   const [entry, setEntry] = useState<string | null>(null);
   const [manual, setManual] = useState(0);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  useEffect(() => setShowDiagnostics(false), [room.code]);
   const [lines, setLines] = useState<ConsoleLine[]>([]);
   const [ready, setReady] = useState(false);
   const [viewport, setViewport] = useState('responsive');
@@ -375,6 +377,14 @@ export function PreviewPanel({
 
       {info?.available && (
         <>
+          {info.synthetic && <div className="previewMissing">
+            <img src="/images/stages/build-v2.png" alt="" width="72" height="72" />
+            <span className="previewMissingEyebrow">{room.status === 'closed' ? 'ENTREGA INCOMPLETA' : 'CONSTRUCCIÓN EN CURSO'}</span>
+            <h3>Todavía no hay un producto que abrir</h3>
+            <p>Hay {info.files || 0} archivos, pero falta la página que los conecta en una experiencia utilizable. El diagnóstico de módulos no es una vista del producto.</p>
+            <button className="btnGhost" aria-expanded={showDiagnostics} onClick={() => setShowDiagnostics(value => !value)}>{showDiagnostics ? 'Ocultar diagnóstico técnico' : 'Inspeccionar archivos y errores'} <Icon name="code" size={16} /></button>
+          </div>}
+          {(!info.synthetic || showDiagnostics) && <>
           <div className="row wrap" style={{ gap: 8, marginBottom: 10 }}>
             {(info.pages || []).length > 1 && (
               <select
@@ -428,7 +438,7 @@ export function PreviewPanel({
           <div className="previewStage">
           <iframe
             ref={previewFrame}
-            title="Vista previa del proyecto"
+            title={info.synthetic ? 'Diagnóstico de carga de módulos' : 'Vista previa del proyecto'}
             src={src || undefined}
             sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads"
             referrerPolicy="no-referrer"
@@ -483,6 +493,7 @@ export function PreviewPanel({
               navegador.
             </Note>
           )}
+          </>}
         </>
       )}
 

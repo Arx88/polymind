@@ -15,6 +15,7 @@ import {
 import { macroOf, turnHoldMs, recursionRounds } from './settings.mjs';
 import { rankOptions, decideTop } from './tally.mjs';
 import { finishRoom, closeRoom } from './result.mjs';
+import { deliveryAcceptance } from './acceptance.mjs';
 import {
   closeAudit, startWork, maybeFinishWork, closeWork, approvedImprovements, sweepClaims,
   reviewIsCovered, reviewState, improvementsFromReview, addReviewItems, workBusyReason,
@@ -643,8 +644,20 @@ export function closeReviewPhase(room) {
   const d = room.phase.data;
   const ronda = d.review?.round || 1;
   const sugerencias = improvementsFromReview(room, { round: ronda });
+  const acceptance = deliveryAcceptance(room);
+  const missingPreview = acceptance.blockers.find(b => b.code === 'preview');
+  const hasRepairCapacity = room.work.order.length + sugerencias.length < room.settings.repo.maxWorkItems;
+  if (missingPreview && hasRepairCapacity) {
+    sugerencias.push({ title: missingPreview.title, claim: missingPreview.title,
+      evidence: 'El servidor no encuentra una página del producto; el diagnóstico de módulos no cuenta como entrega.',
+      action: missingPreview.action, severity: 'high', files: [], source: 'delivery', by: null });
+  }
+  room.artifacts.deliveryAcceptance = acceptance;
+  if (missingPreview && !hasRepairCapacity) {
+    log(room, null, 'work', 'La entrega no tiene página del producto. Se alcanzó el límite de tareas: el cierre conservará esta falta como entrega incompleta, no como aprobación.');
+  }
   const maxRondas = room.settings.repo?.reviewRounds || 2;
-  const puedeSeguir = room.settings.extraordinary && sugerencias.length && ronda < maxRondas;
+  const puedeSeguir = (room.settings.extraordinary || !!missingPreview) && sugerencias.length && ronda < maxRondas;
 
   // Los veredictos se guardan ANTES de dejar la fase: el informe congelado se arma después,
   // cuando `room.phase` ya es otra cosa, y sin este registro diría que nadie revisó nada.
@@ -680,7 +693,9 @@ export function closeReviewPhase(room) {
       `La revisión dejó ${plural(sugerencias.length, 'mejora')} pendientes. ` +
       (room.settings.extraordinary ? 'No quedaban rondas de revisión.' : 'La sala no exige trabajo extraordinario: quedan en el resultado, sin ejecutar.'));
   } else {
-    log(room, null, 'work', 'La revisión no encontró nada más que mejorar en lo integrado.');
+    log(room, null, 'work', acceptance.state === 'incomplete'
+      ? `La revisión terminó con entrega incompleta: ${acceptance.blockers.map(b => b.title).join('; ')}.`
+      : 'La revisión no encontró nada más que mejorar en lo integrado.');
   }
 
   // Mejora recursiva: con el trabajo de esta ronda cerrado y revisado, la sala puede volver a

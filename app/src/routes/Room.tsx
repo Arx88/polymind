@@ -81,7 +81,7 @@ export function Room({ code, onChanged }: { code: string; onChanged: () => void 
 
   const live = room.status === 'debate';
   const statusChip = room.status === 'closed'
-    ? <span className="liveChip lobby"><Icon name="doc" size={13} /> {room.result?.outcome === 'decided' ? 'Sala cerrada · ver entrega' : room.result?.outcome || 'cerrado'}</span>
+    ? <span className="liveChip lobby"><Icon name="doc" size={13} /> {room.delivery?.acceptance?.state === 'incomplete' ? 'Entrega incompleta' : room.result?.outcome === 'decided' ? 'Sala cerrada · ver entrega' : room.result?.outcome || 'cerrado'}</span>
     : room.delivery?.reason === 'sin-proyecto'
       ? <span className="liveChip lobby"><Icon name="info" size={13} /> Proyecto no preparado</span>
     : room.status === 'lobby'
@@ -182,14 +182,14 @@ export function Room({ code, onChanged }: { code: string; onChanged: () => void 
         <small>Confirmar el avance no significa aprobar todas las ideas. El disenso se conserva; un aporte nuevo reinicia las confirmaciones.</small>
       </div>}
 
-      <div className="layoutTwo roomLayout">
+      <div className={`layoutTwo roomLayout${tab === 'preview' ? ' previewLayout' : ''}`}>
         <div className="col">
       {tab === 'live' && room.status === 'closed' && room.result?.outcome === 'decided' && room.result.winner && (
         <section className="resultHero" aria-label="Resumen del resultado congelado">
           <div className="resultHeroCopy">
             
-            <h2>Resultado <strong>congelado</strong></h2>
-            <p>{plural(room.roster.length, 'agente')} · Distintas perspectivas, mejores decisiones</p>
+            <h2>{room.delivery?.acceptance?.state === 'incomplete' ? <>Entrega <strong>pendiente</strong></> : <>Resultado <strong>del equipo</strong></>}</h2>
+            <p>{room.delivery?.acceptance?.state === 'incomplete' ? 'La sesión cerró, pero todavía no hay una entrega comprobada.' : `${plural(room.roster.length, 'agente')} · Consulta el resultado y sus evidencias`}</p>
             <div className="resultHeroStats">
               <Tag tone={room.result.consensus.global >= room.result.consensus.threshold ? 'green' : 'amber'}>
                 {pct0(room.result.consensus.global)} consenso
@@ -200,7 +200,7 @@ export function Room({ code, onChanged }: { code: string; onChanged: () => void 
               {room.result.delivery && (
                 <Tag tone={room.result.delivery.kind === 'code' ? 'green' : 'grey'}>
                   {room.result.delivery.kind === 'code'
-                    ? `código entregado: rama ${room.result.delivery.branch}`
+                      ? `código integrado: rama ${room.result.delivery.branch}`
                     : room.result.delivery.reason === 'solo-planificacion'
                       ? 'solo planificación: sin código'
                       : 'proyecto no preparado: sin código'}
@@ -640,10 +640,13 @@ function RoomTabs({ tab, onTab, room, unresolved }: { tab: RoomTab; onTab: (next
     { id: 'config', label: 'Configuración', badge: 'prompt', tone: 'blue' },
     { id: 'log', label: 'Registro', badge: `${room.log.length}`, tone: 'grey' },
   ];
+  const visibleItems = items.filter(item => item.id !== 'work' || room.repo || room.work || room.findings.length > 0);
   return (
-    <nav className="roomTabs">
-      {items
-        .filter(item => item.id !== 'work' || room.repo || room.work || room.findings.length > 0)
+    <nav className="roomTabs" aria-label="Secciones del trabajo">
+      <label className="mobileRoomNav"><span>Sección</span><select aria-label="Sección del trabajo" value={tab} onChange={event => onTab(event.target.value as RoomTab)}>
+        {visibleItems.map(item => <option key={item.id} value={item.id}>{item.label}{item.badge ? ` · ${item.badge}` : ''}</option>)}
+      </select></label>
+      {visibleItems
         // Nunca ocultar la vista previa: cuando no hay proyecto, la pestaña explica por qué
         // no puede mostrar uno y permite distinguir una elección de un fallo de preparación.
         .map(item => (

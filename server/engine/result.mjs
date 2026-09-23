@@ -15,6 +15,7 @@ import { buildWorkResult, repoSummary } from './work.mjs';
 import { buildObligations, obligationsMarkdown } from './obligations.mjs';
 import { humanReviewReport } from './human.mjs';
 import { collaborationReport } from './collaboration.mjs';
+import { deliveryAcceptance } from './acceptance.mjs';
 
 // Qué se lleva el humano de esta sala: CÓDIGO (en un repo ajeno o en un proyecto nuevo) o un
 // plan. Una sala puede acabar sin archivos por motivos muy distintos —repo ajeno mejorado,
@@ -34,6 +35,7 @@ function buildDelivery(room, work) {
   }
   return {
     kind: 'code',
+    acceptance: deliveryAcceptance(room),
     reason: room.repo.greenfield ? 'proyecto-nuevo' : 'repo',
     branch: room.repo.branch,
     source: room.repo.source,
@@ -413,6 +415,9 @@ export function finishRoom(room, winnerId = null) {
   // historial de commits dos veces por el mismo dato.
   const workResult = buildWorkResult(room);
   const deliveryInfo = buildDelivery(room, workResult);
+  if (deliveryInfo.acceptance?.state === 'incomplete') {
+    log(room, null, 'work', `ENTREGA INCOMPLETA: ${deliveryInfo.acceptance.blockers.map(b => b.title).join('; ')}. El cierre de la sesión no certifica el producto.`);
+  }
   // El veredicto NO lo escribe nadie: se genera desde el plan congelado, las tareas y las
   // mediciones que hizo el servidor. Una afirmación sin evidencia no se cuenta como cumplida.
   const obligations = buildObligations(room);

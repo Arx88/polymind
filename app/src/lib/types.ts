@@ -665,6 +665,13 @@ export interface PreviewInfo {
 // Qué se lleva el humano de la sala: código (repo ajeno o proyecto nuevo) o solo un plan. El
 // panel lo dice desde el primer momento, en vez de dejar que se adivine por qué no hay archivos.
 export interface Delivery {
+  acceptance?: {
+    state: 'plan' | 'incomplete' | 'evidenced';
+    blockers: { code: string; title: string; action: string }[];
+    preview: { available: boolean; synthetic: boolean; entry: string | null } | null;
+    visual?: boolean;
+    verified?: boolean;
+  };
   kind: 'code' | 'plan';
   reason: 'repo' | 'proyecto-nuevo' | 'solo-planificacion' | 'sin-proyecto';
   planOnly: boolean;

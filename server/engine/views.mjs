@@ -17,6 +17,7 @@ import { phaseMsLeft, liveProposals, reviseAuthors, canStart, phaseInputsComplet
 import { repoSummary, workSummary, workItemForTurn, reviewAssignments, planText } from './work.mjs';
 import { obligationsBrief, buildObligations } from './obligations.mjs';
 import { visualBrief } from './visual.mjs';
+import { deliveryAcceptance } from './acceptance.mjs';
 
 import { readRepoFile, workDiff, commitLog } from './repo.mjs';
 
@@ -191,7 +192,11 @@ function computeTurn(room, agentId, { since = 0, record = true } = {}) {
   };
 
   if (room.status === 'closed') {
-    return finish({ ...b, action: 'done', message: 'Debate cerrado. Pide el resultado con GET /result y repórtalo con su checksum.' });
+    const acceptance = deliveryAcceptance(room);
+    return finish({ ...b, action: 'done', deliveryAcceptance: acceptance,
+      message: acceptance.state === 'incomplete'
+        ? `La sesión cerró con ENTREGA INCOMPLETA: ${acceptance.blockers.map(x => x.title).join('; ')}. Pide GET /result y reporta estas limitaciones. No presentes el plan ni los parches como un producto terminado.`
+        : 'Debate cerrado. Pide el resultado con GET /result y repórtalo con su checksum y sus evidencias.' });
   }
   if (agent.joinAfterPhase && agent.joinAfterPhase === (room.phase.instanceId || room.phase.startedAt)) {
     return finish({ ...b, action: 'wait', message: `Te incorporaste durante ${room.phase.name}. Tu primer turno de trabajo llegará al empezar la próxima fase; consulta /turn para recibirlo.` });
@@ -681,6 +686,7 @@ function reviewTurn(room, agentId) {
   const visual = visualBrief(room, agentId, buildObligations(room).claims);
   const canJudge = !!visual?.available && (visual.targets || []).length > 0;
   const base = {
+    deliveryAcceptance: deliveryAcceptance(room),
     branch: work.branch,
     head: work.head,
     commits: commitLog(room).length,
@@ -1184,6 +1190,7 @@ export function deliveryOf(room) {
     planOnly: !!room.settings?.planOnly,
     branch: room.repo?.branch || null,
     warning: room.artifacts?.deliveryWarning || null,
+    acceptance: room.status === 'closed' ? deliveryAcceptance(room) : undefined,
   };
 }
 

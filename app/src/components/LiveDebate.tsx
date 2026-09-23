@@ -55,6 +55,45 @@ const PHASE_DOING: Record<Phase, string> = {
   closed: 'cerrando',
 };
 
+// La frase describe la fase real; la marca visual compacta identifica su tipo de trabajo.
+const PHASE_LABEL: Record<Phase, string> = {
+  lobby: 'Reuniendo al equipo',
+  frame: 'Definiendo el problema',
+  contrast: 'Contrastando los ejes',
+  audit: 'Inspeccionando el proyecto',
+  proposal: 'Construyendo propuestas',
+  critique: 'Poniendo ideas a prueba',
+  revise: 'Mejorando propuestas',
+  vote: 'Decidiendo entre opciones',
+  tiebreak: 'Resolviendo el empate',
+  objection: 'Examinando objeciones',
+  repair: 'Reparando el plan',
+  synthesis: 'Uniendo lo mejor',
+  verify: 'Definiendo comprobaciones',
+  work: 'Construyendo el resultado',
+  review: 'Revisando lo construido',
+  closed: 'Trabajo terminado',
+};
+const PHASE_STAGE: Record<Phase, number> = {
+  lobby: 0, frame: 0, contrast: 0, audit: 0,
+  proposal: 1, critique: 1, revise: 1, vote: 1, tiebreak: 1, objection: 1, repair: 1,
+  synthesis: 2, verify: 2, work: 3, review: 4, closed: 4,
+};
+// Las etapas usan ilustraciones de objetos; los retratos quedan reservados para agentes.
+const STAGE_TRACK: ReadonlyArray<{ label: string; art: string }> = [
+  { label: 'Preparar', art: 'prepare' },
+  { label: 'Debatir', art: 'debate' },
+  { label: 'Cerrar el plan', art: 'plan' },
+  { label: 'Construir', art: 'build' },
+  { label: 'Revisar', art: 'review' },
+];
+
+function StageMark({ index }: { index: number }) {
+  return <span className="stageMark" aria-hidden="true">
+    <img src={`/images/stages/${STAGE_TRACK[index].art}-v2.png`} alt="" width="48" height="48" />
+  </span>;
+}
+
 const EVENT_TONE: Record<string, Tone> = {
   proposal: 'blue',
   point: 'blue',
@@ -140,7 +179,7 @@ function shortAction(phase: Phase, action: string | null): string | null {
 }
 
 const STATE_LABEL: Record<LiveMember['state'] | 'absent', string> = {
-  pending: 'entregando ahora',
+  pending: 'turno abierto',
   delivered: 'ya entregó',
   free: 'sin turno en esta fase',
   absent: 'ausente',
@@ -169,19 +208,20 @@ export function LiveDebate({ room, connected, onOpenDissent }: { room: Room; con
   const absent = members.filter(m => m.status === 'absent');
 
   const headline = useMemo(() => {
+    if (room.health) return room.health.reason;
     if (room.status === 'lobby') {
       return live.waitingFor
         ? `Faltan ${live.waitingFor} ${live.waitingFor === 1 ? 'agente' : 'agentes'} para arrancar el debate`
         : 'Ya están los mínimos reunidos: el debate arranca solo';
     }
     if (acting.length) {
-      return `Ahora: ${nameList(acting.map(m => m.name))} ${acting.length === 1 ? 'está' : 'están'} ${PHASE_DOING[room.phase]}`;
+      return `Turno abierto para ${nameList(acting.map(m => m.name))}: ${PHASE_DOING[room.phase]}`;
     }
     if (delivered.length) {
       return `Todos los turnos de ${live.phaseLabel.toLowerCase()} están entregados`;
     }
     return `Nadie tiene turno abierto en ${live.phaseLabel.toLowerCase()}`;
-  }, [room.status, room.phase, live.phaseLabel, live.waitingFor, acting, delivered.length]);
+  }, [room.status, room.phase, room.health, live.phaseLabel, live.waitingFor, acting, delivered.length]);
 
   // Del más nuevo al más viejo. Las entradas se agrupan aparte: cinco «se une al
   // debate» seguidos son ruido, no información.
@@ -191,6 +231,15 @@ export function LiveDebate({ room, connected, onOpenDissent }: { room: Room; con
   );
   const joins = useMemo(() => room.log.filter(e => e.kind === 'join').length, [room.log]);
   const newestId = feed[0]?.id ?? null;
+  const recentByAgent = useMemo(() => {
+    const recent = new Map<string, string>();
+    for (const entry of [...room.log].reverse()) {
+      if (entry.agentId && !recent.has(entry.agentId) && !['join', 'pass', 'phase', 'timeout', 'absent', 'vacancy', 'budget'].includes(entry.kind)) {
+        recent.set(entry.agentId, entry.text);
+      }
+    }
+    return recent;
+  }, [room.log]);
   const flashRef = useRef<number | null>(null);
   const isFresh = newestId !== null && flashRef.current !== newestId && Date.now() - (feed[0]?.ts || 0) < 10000;
   useEffect(() => { flashRef.current = newestId; }, [newestId]);
@@ -203,12 +252,13 @@ export function LiveDebate({ room, connected, onOpenDissent }: { room: Room; con
   const merged = room.contrast?.merged?.length || 0;
   const axes = challenged + merged;
   const total = members.filter(m => m.status !== 'absent').length;
+  const stageIndex = PHASE_STAGE[room.phase];
 
   return (
     <section className={`livePanel tone-${tone}`}>
       <header className="liveHead">
         <span className="liveDot" />
-        <b className="liveTitle">Debate live</b>
+        <b className="liveTitle">Trabajo en directo</b>
         <span className="livePhase">{live.phaseLabel}</span>
         <span className="spacer" />
         {/* El plazo se amplía cuando alguien tiene el turno entregado: sin decirlo, el reloj
@@ -233,9 +283,14 @@ export function LiveDebate({ room, connected, onOpenDissent }: { room: Room; con
 
       {/* 1 · El foco: qué está pasando, con nombres, y por qué existe esta fase. */}
       <div className="liveNow">
-        <div className="liveNowText">
-          <p className="liveNowLine">{headline}</p>
-          {live.mechanism && <p className="liveWhy">{live.mechanism}</p>}
+        <div className="liveScene">
+          <div className="liveSceneMain">
+            <div className="liveNowText">
+              <span className="liveSceneEyebrow">{room.health ? 'Requiere atención' : `Ahora · ${PHASE_LABEL[room.phase]}`}</span>
+              <p className="liveNowLine" aria-live="polite">{headline}</p>
+              {(room.health?.action || live.mechanism) && <p className="liveWhy">{room.health?.action || live.mechanism}</p>}
+            </div>
+          </div>
           {urgent && (
             <p className="liveAlert">
               {/* Si la fase ya se ha ampliado, el reloj NO se lleva por delante a quien tiene
@@ -253,8 +308,8 @@ export function LiveDebate({ room, connected, onOpenDissent }: { room: Room; con
           </div>
           <div className="liveGaugeLabel">
             {live.expected === 0
-              ? 'sin turnos: la fase cierra sola'
-              : live.expected === 1 ? 'turno abierto en esta fase' : 'turnos abiertos en esta fase'}
+              ? room.health ? 'sin turnos activos · requiere atención' : 'sin aportes pendientes en esta fase'
+              : live.expected === 1 ? 'aporte entregado en esta fase' : 'aportes entregados en esta fase'}
           </div>
           {live.expected < total && (
             <div className="liveGaugeSub">
@@ -262,13 +317,23 @@ export function LiveDebate({ room, connected, onOpenDissent }: { room: Room; con
             </div>
           )}
           <div className="livePips">
-            {members.map(m => {
-              const state = m.status === 'absent' ? 'absent' : m.state;
-              return <i key={m.id} className={state} title={`${m.name} · ${STATE_LABEL[state]}`} />;
-            })}
+          {members.map(m => {
+            const state = m.status === 'absent' ? 'absent' : m.state;
+            return <i key={m.id} className={state} title={`${m.name} · ${STATE_LABEL[state]}`} />;
+          })}
           </div>
           {live.next && <div className="liveNext">al cerrar → <b>{live.next}</b></div>}
         </div>
+      </div>
+      <div className={`liveJourney${room.repo ? '' : ' short'}`} aria-label="Etapas del trabajo">
+        {STAGE_TRACK.slice(0, room.repo ? 5 : 3).map((stage, index) => {
+          const current = stageIndex === index;
+          return <div className={`journeyStep${current ? ' current' : ''}${index < stageIndex ? ' past' : ''}`}
+            key={stage.label} aria-current={current ? 'step' : undefined}>
+            <StageMark index={index} />
+            <span className="journeyCopy"><b>{stage.label}</b><small>{current ? 'Ahora' : index < stageIndex ? 'Hecho' : 'Después'}</small></span>
+          </div>;
+        })}
       </div>
 
       {/* 1b · Una sola línea para el disenso: el detalle vive en su pestaña, aquí solo
@@ -307,21 +372,21 @@ export function LiveDebate({ room, connected, onOpenDissent }: { room: Room; con
       {/* 2 · Reparto de turnos, agrupado: quien actúa primero, quien ya terminó después. */}
       <div className="liveTurns">
         <div className="turnsHead">
-          <b>Turnos de esta fase</b>
+          <b>Quién hace qué</b>
           <span className="spacer" />
           <span className="tiny">
             {joins > 0 && `${joins} en la sala · `}
-            {acting.length} {acting.length === 1 ? 'activo' : 'activos'} ahora
+            {acting.length} con turno abierto
           </span>
         </div>
         {room.status === 'lobby'
-          ? <TurnGroup tone="grey" label="en la sala" members={members} phase={room.phase} />
+          ? <TurnGroup tone="grey" label="en la sala" members={members} phase={room.phase} room={room} recentByAgent={recentByAgent} />
           : (
             <>
-              {acting.length > 0 && <TurnGroup tone="blue" label="entregando ahora" members={acting} phase={room.phase} busy />}
-              {delivered.length > 0 && <TurnGroup tone="green" label="ya entregaron" members={delivered} phase={room.phase} />}
-              {idle.length > 0 && <TurnGroup tone="grey" label="sin turno en esta fase" members={idle} phase={room.phase} />}
-              {absent.length > 0 && <TurnGroup tone="amber" label="ausentes" members={absent} phase={room.phase} />}
+              {acting.length > 0 && <TurnGroup tone="blue" label="turno abierto" members={acting} phase={room.phase} room={room} recentByAgent={recentByAgent} busy />}
+              {delivered.length > 0 && <TurnGroup tone="green" label="ya entregaron" members={delivered} phase={room.phase} room={room} recentByAgent={recentByAgent} />}
+              {idle.length > 0 && <TurnGroup tone="grey" label="esperando su turno" members={idle} phase={room.phase} room={room} recentByAgent={recentByAgent} />}
+              {absent.length > 0 && <TurnGroup tone="amber" label="ausentes" members={absent} phase={room.phase} room={room} recentByAgent={recentByAgent} />}
             </>
           )}
       </div>
@@ -358,7 +423,10 @@ export function LiveDebate({ room, connected, onOpenDissent }: { room: Room; con
   );
 }
 
-function TurnGroup({ label, members, tone, phase, busy }: { label: string; members: LiveMember[]; tone: Tone; phase: Phase; busy?: boolean }) {
+function TurnGroup({ label, members, tone, phase, room, recentByAgent, busy }: {
+  label: string; members: LiveMember[]; tone: Tone; phase: Phase; room: Room;
+  recentByAgent: Map<string, string>; busy?: boolean;
+}) {
   return (
     <div className="turnGroup">
       <span className={`turnLabel ${tone}`}>
@@ -367,20 +435,29 @@ function TurnGroup({ label, members, tone, phase, busy }: { label: string; membe
         <b>{members.length}</b>
       </span>
       <div className="turnFolks">
-        {members.map(member => (
-          <span
-            className={`folk ${member.status === 'absent' ? 'absent' : member.state}${member.online ? '' : ' offline'}`}
+        {members.map(member => {
+          const holding = room.roster.find(agent => agent.id === member.id)?.holding;
+          const last = recentByAgent.get(member.id);
+          const state = member.status === 'absent' ? 'absent' : member.state;
+          return <div
+            className={`folk ${state}${member.online ? '' : ' offline'}`}
             key={member.id}
-            title={`${member.name}${member.harness ? ` · ${member.harness}` : ''} · ${STATE_LABEL[member.status === 'absent' ? 'absent' : member.state]}${member.online ? '' : ' · sin señal reciente'}`}
           >
-            <Avatar name={member.name} harness={member.harness} size={42} dim={member.status === 'absent'} />
-            <b>{member.name}</b>
-            {member.state === 'pending' && shortAction(phase, member.action) && (
-              <small className="folkAction">{shortAction(phase, member.action)}</small>
+            <div className="folkPortrait">
+              <Avatar name={member.name} harness={member.harness} size={58} dim={state === 'absent'} />
+              {state === 'pending' && member.online && <i className="folkBusy" aria-hidden="true" />}
+            </div>
+            <div className="folkInfo">
+              <b>{member.name}</b>
+              <small>{member.harness || 'Harness sin declarar'}</small>
+              <span className="folkStatus">{STATE_LABEL[state]}{!member.online && state !== 'absent' ? ' · sin señal reciente' : ''}</span>
+            </div>
+            {(holding?.title || (state === 'pending' && shortAction(phase, member.action))) && (
+              <p className="folkFocus"><span>{holding ? 'Tarea asignada' : 'Acción pedida'}</span>{holding?.title || shortAction(phase, member.action)}</p>
             )}
-            {!member.online && member.status !== 'absent' && <small className="folkSignal">sin señal</small>}
-          </span>
-        ))}
+            {last && <p className="folkRecent" title={last}><span>Último aporte</span>{last}</p>}
+          </div>;
+        })}
       </div>
     </div>
   );

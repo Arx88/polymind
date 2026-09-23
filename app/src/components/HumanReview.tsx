@@ -86,7 +86,7 @@ export function HumanReviewBlock({ room, onChanged }: { room: Room; onChanged?: 
         )}
       </div>
       <p className="tiny">
-        Los modelos que declararon visión ya juzgaron las capturas durante el trabajo.
+        Consulta las capturas y los juicios registrados: declarar visión no garantiza que se haya hecho una revisión visual.
         Acá decide quien recibe, sobre lo <b>entregado</b>: aprobar, o pedir cambios concretos que la sala
         vuelve a ejecutar.
         {human ? ` ${human.note}` : ''}

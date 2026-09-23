@@ -402,6 +402,17 @@ export async function runVerify(room, { timeoutMs = null, kind = 'verify', itemI
   const repo = room.repo;
   if (!repo) return { ran: false, reason: 'sin-repo' };
   if (!repo.verify) return { ran: false, reason: 'sin-comando-de-verificacion' };
+  const verifiedHead = repo.head || null;
+  // Bind the executed check to an exact index tree. If the command changes the
+  // index/worktree, its result must not certify the subsequently committed tree.
+  const indexTree = () => {
+    const unstaged = git(repo, ['diff', '--quiet']);
+    const untracked = git(repo, ['ls-files', '--others', '--exclude-standard']);
+    if (!unstaged.ok || !untracked.ok || untracked.output.trim()) return null;
+    const tree = git(repo, ['write-tree']);
+    return tree.ok ? tree.output.trim() : null;
+  };
+  const beforeTree = indexTree();
   const limit = timeoutMs || repo.verify.timeoutMs;
   const res = await execProcess({
     file: repo.verify.command,
@@ -422,14 +433,17 @@ export async function runVerify(room, { timeoutMs = null, kind = 'verify', itemI
     outputTail: clip(res.output, REPO_LIMITS.verifyOutputChars),
     at: Date.now(),
   };
+  const afterTree = indexTree();
+  out.verifiedTree = beforeTree && beforeTree === afterTree ? beforeTree : null;
   try {
     const { entry, reused } = recordEvidence(room, {
       command: out.command,
       exitCode: out.exitCode,
       ok: out.ok,
       output: res.output,
-      commit: repo.head || null,
-      dirty: !!itemId,
+      commit: verifiedHead,
+      verifiedTree: out.verifiedTree,
+      dirty: !!itemId || !out.verifiedTree || repo.head !== verifiedHead,
       kind,
       itemId,
       by,
