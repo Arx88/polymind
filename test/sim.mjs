@@ -1390,6 +1390,31 @@ test('20 · configuración de sala: se ve entera, se guarda como plantilla y se 
   assert.equal(sinRepo.body.delivery.reason, 'proyecto-nuevo');
   assert.match(sinRepo.body.repo.branch, /^agora\//, 'el proyecto nuevo trae rama propia de la sala');
 
+  // Un scaffold anterior no es un repo de origen: «proyecto nuevo» no es una ruta que clonar.
+  const configScaffold = (await j(`${base}/api/rooms/${sinRepo.body.code}/config`)).body.config;
+  assert.equal(configScaffold.repo, null, 'la configuración no inventa una ruta para un proyecto nuevo');
+  const reabiertoScaffold = await post(`${base}/api/rooms`, { from: sinRepo.body.code });
+  assert.equal(reabiertoScaffold.body.repoWarning, null, 'reabrir no intenta clonar la etiqueta proyecto nuevo');
+  assert.equal(reabiertoScaffold.body.repo.kind, 'scaffold', 'reabrir crea un proyecto nuevo independiente');
+  assert.equal(reabiertoScaffold.body.delivery.kind, 'code');
+
+  // Un fallo real de repositorio no debe convocar agentes para gastar su trabajo en un plan
+  // no solicitado. El humano puede corregir el repo en lobby y entonces sí invitar.
+  const repoRoto = await post(`${base}/api/rooms`, {
+    task: 'Construir el proyecto solicitado con código verificable.',
+    repo: { path: path.join(DATA, 'repo-que-no-existe') },
+  });
+  assert.equal(repoRoto.body.delivery.reason, 'sin-proyecto');
+  assert.ok(repoRoto.body.repoWarning);
+  const joinRoto = await post(`${base}/api/rooms/${repoRoto.body.code}/join`, { name: 'No gastar', harness: 'sim' });
+  assert.equal(joinRoto.status, 409, 'no se acepta trabajo en una sala sin proyecto por error');
+  const repoCorregido = await post(`${base}/api/rooms/${repoRoto.body.code}/admin`, {
+    op: 'set-repo', adminToken: repoRoto.body.adminToken, repo: { path: fixture },
+  });
+  assert.equal(repoCorregido.body.ok, true);
+  const joinCorregido = await post(`${base}/api/rooms/${repoRoto.body.code}/join`, { name: 'Ahora sí', harness: 'sim' });
+  assert.equal(joinCorregido.body.ok, true, 'después de corregir el repo se acepta el harness');
+
   // Solo planificación: lo único que hace que una sala acabe sin archivos, y lo pide el humano.
   const soloPlan = await post(`${base}/api/rooms`, { from: code, repo: null, settings: { planOnly: true } });
   assert.equal(soloPlan.body.repo, null, 'con solo planificación no se crea proyecto');

@@ -326,6 +326,7 @@ export function PreviewPanel({
               ? 'El resultado es el plan, sin código: no hay nada que previsualizar.'
               : 'Sin repositorio y sin proyecto nuevo no hay árbol de trabajo que servir. Reabre la sala para que cree uno.'}
           />
+          {info.reason === 'sin-proyecto' && <a className="btnGhost" href={`#/nuevo?from=${room.code}`} style={{ margin: '0 20px 20px' }}>Crear otro proyecto para esta tarea <Icon name="arrow" size={16} /></a>}
         </Card>
       );
     }

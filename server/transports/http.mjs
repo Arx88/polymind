@@ -213,10 +213,16 @@ export function createAgora({ dataDir, appDistDir, clockMs = 1000, memory = unde
         baseline: input.baseline !== false && defaults.baseline !== false,
         pushTo: input.pushTo ?? input.push ?? null,
       });
+      room.artifacts.deliveryWarning = null;
       runBaselineNow(room);
       return null;
     } catch (err) {
-      return err?.message || 'No se pudo adjuntar el repositorio.';
+      const motivo = err?.message || 'No se pudo adjuntar el repositorio.';
+      room.artifacts.deliveryWarning = motivo;
+      log(room, null, 'phase',
+        `No se pudo preparar el repositorio (${motivo}). La sala no tiene dónde escribir código: ` +
+        'corrige el repositorio o reabre con un proyecto nuevo antes de conectar harnesses.');
+      return motivo;
     }
   }
 

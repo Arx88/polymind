@@ -3,7 +3,7 @@
 .main{scroll-margin-top:90px}
 .workComposer>.pageHead{position:relative;isolation:isolate;overflow:hidden;min-height:204px;padding:28px 32px;border:1px solid var(--pm-line);border-radius:24px;background:linear-gradient(110deg,#f9fcff,#ecf8ff);margin-bottom:4px}
 .workComposer>.pageHead>div{position:relative;z-index:1;width:72%}
-.workComposer>.pageHead::after{content:"";position:absolute;z-index:0;inset:0 0 0 auto;width:38%;background:url('/images/polymind-minds.png') 72% center/cover no-repeat;mask-image:linear-gradient(90deg,transparent,#000 34%);opacity:.92;pointer-events:none}
+.workComposer>.pageHead::after{content:"";position:absolute;z-index:0;inset:0 0 0 auto;width:42%;background:url('/images/polymind-build.png') 64% center/cover no-repeat;mask-image:linear-gradient(90deg,transparent,#000 34%);opacity:.92;pointer-events:none}
 .workComposer .pageHead h1{text-wrap:balance;font-size:clamp(25px,2.6vw,34px);letter-spacing:-1px;max-width:590px}
 .workComposer .pageHead p{max-width:500px;color:var(--pm-muted);margin-bottom:0}
 .workComposer>.pageHead .eyebrow{font-size:10px;letter-spacing:1.6px}
@@ -49,6 +49,45 @@
 .deliveryWarning p{margin:6px 0}.deliveryWarning small{font-size:12px}
 .workTile:focus-visible,.workspaceMetrics>button:focus-visible{box-shadow:var(--pm-lift-shadow)}
 .resultHero .resultHeroCopy>p{max-width:min(360px,58%);text-wrap:pretty}
+/* La sala y el formulario comparten un ritmo de 8 px: contenido respirable sin perder densidad. */
+.main{padding:clamp(20px,2.4vw,38px) clamp(18px,3vw,48px) 76px}
+.wide{max-width:1520px}
+.narrow{max-width:1000px}
+.pageHead{margin-bottom:24px;gap:18px}
+.pageHead h1{line-height:1.2;text-wrap:balance}
+.layoutTwo{gap:24px}
+.col{gap:20px}
+.roomTabs{gap:7px;padding:9px;margin:6px 0 24px;box-shadow:0 8px 26px #1833660a}
+.roomTab{min-height:44px;padding:10px 15px}
+.resultHero{height:auto;min-height:238px;margin-bottom:20px}
+.resultHeroCopy{padding:30px 34px;max-width:72%;min-height:238px}
+.resultHeroStats{flex-wrap:wrap;gap:8px;margin-top:22px}
+.resultHeroStats .tag{white-space:normal;line-height:1.35}
+.resultCard{padding:24px;border-radius:20px}
+.resultCard .final{line-height:1.75;padding:20px 22px;overflow-wrap:anywhere}
+.card .cardHead{margin:0 24px;padding:19px 0 15px}
+.card .cardBody{padding:22px 24px}
+.deliverySummary{padding:22px;margin-bottom:24px}
+.deliveryGrid{gap:20px}
+.setupFailure{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:18px 20px;margin:0 0 22px;border:1px solid #f0d2b4;border-radius:16px;background:#fff8ed;color:#79431d;box-shadow:0 6px 20px #a7661910}
+.setupFailure b{display:block;font-size:15px;color:#7d3d13}
+.setupFailure p{margin:4px 0 0;line-height:1.55;font-size:13px;overflow-wrap:anywhere}
+.setupFailure .btnGhost{flex:none;min-height:44px;background:#fff;border-color:#edccaa;color:#853f17;white-space:normal;text-align:center}
+.workComposer{gap:18px}
+.workComposer>.pageHead{min-height:220px;padding:34px 38px}
+.workComposer .cardHead{padding-top:20px;padding-bottom:17px}
+.workComposer .cardBody{padding:24px}
+.workspaceHero>img{object-position:63% center}
+.workspaceCollection{padding:28px}
+.workTile{padding:22px}
+/* Entrada escalonada y estados de interacción: movimiento con propósito y sin bloqueo. */
+.workspaceHero,.workComposer>.pageHead,.resultHero{animation:pm-appear 440ms var(--pm-ease) both}
+.workspaceMetrics>button,.workTile{animation:pm-appear 380ms var(--pm-ease) both}
+.workspaceMetrics>button:nth-child(2),.workTile:nth-child(2){animation-delay:45ms}
+.workspaceMetrics>button:nth-child(3),.workTile:nth-child(3){animation-delay:90ms}
+.workTile:nth-child(n+4){animation-delay:120ms}
+.roomTabs{animation:pm-appear 300ms var(--pm-ease) both}
+@keyframes pm-appear{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 @media(hover:hover){
   .composerSteps button:hover:not([aria-current=step]){background:#f5f8ff;border-color:#adc4f0;transform:translateY(-1px)}
   :is(.btnBlue,.btnPrimary):hover:not(:disabled){box-shadow:0 7px 18px #2057ed28;transform:translateY(-1px)}
@@ -61,7 +100,25 @@
 }
 @keyframes pm-panel-in{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
 @media(max-width:760px){
-  .workComposer>.pageHead{padding:22px;min-height:224px;border-radius:20px}
+  .main{padding:18px 16px 64px}
+  .pageHead{margin-bottom:20px}
+  .roomTabs{margin:8px 0 20px;gap:6px}
+  .roomTab{min-height:44px}
+  .col{gap:18px}
+  .resultHero{min-height:260px}
+  .resultHeroCopy{min-height:260px;max-width:100%;padding:22px}
+  .resultHeroStats{margin-top:auto;gap:6px}
+  .resultCard{padding:17px}
+  .resultCard .final{padding:16px}
+  .card .cardHead{margin:0 17px}
+  .card .cardBody{padding:18px 17px}
+  .deliverySummary{padding:18px}
+  .setupFailure{flex-direction:column;align-items:stretch;padding:16px}
+  .setupFailure .btnGhost{width:100%}
+  .workComposer .cardBody{padding:18px}
+  .workspaceCollection{padding:18px}
+  .workTile{padding:19px}
+  .workComposer>.pageHead{padding:24px;min-height:230px;border-radius:20px}
   .workComposer>.pageHead>div{width:100%}
   .workComposer>.pageHead::after{width:52%;opacity:.2}
   .workComposer .pageHead h1{font-size:28px;max-width:480px}
@@ -75,4 +132,5 @@
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
   :is(.btnBlue,.btnPrimary,.btnGhost,.roomTab):active:not(:disabled),.nav a:hover svg,.agentRoster .agentRow:hover .polymindAvatar{transform:none}
+  .workspaceHero,.workComposer>.pageHead,.resultHero,.workspaceMetrics>button,.workTile,.roomTabs{animation:none!important}
 }

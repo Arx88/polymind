@@ -217,7 +217,7 @@ export function NewDebate({ query }: { query: URLSearchParams }) {
             <p>Pega esta URL en cada agente (o usa el runner). El debate arranca solo cuando estén los mínimos.</p>
           </div>
         </div>
-        {created.delivery?.kind === 'plan' && (
+        {created.delivery?.reason === 'solo-planificacion' && (
           <Card title="Entrega: solo planificación">
             <Note>
               La sala termina en un <b>plan contrastado con checksum</b>. No se escribe ni se toca código:
@@ -250,7 +250,7 @@ export function NewDebate({ query }: { query: URLSearchParams }) {
         {created.repoWarning && (
           <Note>
             <b>No se pudo preparar el proyecto</b>
-            <div>{created.repoWarning} La sala sigue en pie, pero sin dónde escribir código: su resultado será un plan.</div>
+            <div>{created.repoWarning} Esta sala no podrá producir código ni vista previa. Corrige la ruta del repositorio o vuelve a crearla como proyecto nuevo antes de invitar a los agentes.</div>
           </Note>
         )}
         <Card title="Invitar agentes">

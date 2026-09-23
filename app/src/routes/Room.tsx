@@ -82,6 +82,8 @@ export function Room({ code, onChanged }: { code: string; onChanged: () => void 
   const live = room.status === 'debate';
   const statusChip = room.status === 'closed'
     ? <span className="liveChip lobby"><Icon name="doc" size={13} /> {room.result?.outcome === 'decided' ? 'Sala cerrada · ver entrega' : room.result?.outcome || 'cerrado'}</span>
+    : room.delivery?.reason === 'sin-proyecto'
+      ? <span className="liveChip lobby"><Icon name="info" size={13} /> Proyecto no preparado</span>
     : room.status === 'lobby'
       ? <span className="liveChip lobby"><i className="dot" /> Lobby · esperando agentes</span>
       : room.health ? <span className="liveChip lobby">{room.health.state === 'blocked' ? 'Bloqueado · requiere atención' : 'Sin avance comprobado'}</span>
@@ -140,10 +142,14 @@ export function Room({ code, onChanged }: { code: string; onChanged: () => void 
               )}
             </div>
           )}
-          {/* Solo planificación: sin proyecto, el panel lo dice en vez de dejar un hueco. */}
+          {/* Una sala sin proyecto puede ser intencional o un fallo: nunca llamarlos igual. */}
           {!room.repo && room.delivery?.kind === 'plan' && (
             <div className="row wrap" style={{ marginTop: 8, gap: 8 }}>
-              <Tag tone="grey">solo planificación: el resultado es un plan, sin código</Tag>
+              <Tag tone={room.delivery.reason === 'solo-planificacion' ? 'grey' : 'red'}>
+                {room.delivery.reason === 'solo-planificacion'
+                  ? 'solo planificación: plan sin código'
+                  : 'proyecto no preparado: no se produjo código'}
+              </Tag>
             </div>
           )}
         </div>
@@ -152,6 +158,16 @@ export function Room({ code, onChanged }: { code: string; onChanged: () => void 
         {remaining > 0 && room.status !== 'debate' && <span className="timer tiny mono"><Icon name="clock" size={14} /> {clock(remaining)} · {room.phaseLabel}</span>}
         {statusChip}
       </div>
+
+      {room.delivery?.reason === 'sin-proyecto' && (
+        <div className="setupFailure" role="alert">
+          <div>
+            <b>Este trabajo no pudo preparar un proyecto.</b>
+            <p>{room.delivery.warning || 'Los harnesses pudieron debatir, pero no tienen dónde escribir código.'} No habrá implementación ni vista previa en esta sala.</p>
+          </div>
+          <a className="btnGhost" href={`#/nuevo?from=${room.code}`}>Reintentar con proyecto nuevo <Icon name="arrow" size={16} /></a>
+        </div>
+      )}
 
       <RoomTabs
         tab={tab}
@@ -185,7 +201,9 @@ export function Room({ code, onChanged }: { code: string; onChanged: () => void 
                 <Tag tone={room.result.delivery.kind === 'code' ? 'green' : 'grey'}>
                   {room.result.delivery.kind === 'code'
                     ? `código entregado: rama ${room.result.delivery.branch}`
-                    : 'solo planificación: sin código'}
+                    : room.result.delivery.reason === 'solo-planificacion'
+                      ? 'solo planificación: sin código'
+                      : 'proyecto no preparado: sin código'}
                 </Tag>
               )}
               <Tag tone="grey">~{room.result.cost?.estTokens ?? 0} tokens</Tag>
@@ -212,7 +230,8 @@ export function Room({ code, onChanged }: { code: string; onChanged: () => void 
             <Icon name="doc" size={15} /> Ver el prompt completo
           </button>
           <span className="tiny" style={{ alignSelf: 'center' }}>
-            Hereda tarea, agenda, reglas y repo de {room.code}; los agentes entran de nuevo.
+            Hereda tarea, agenda y reglas de {room.code}. Si el origen tenía un proyecto nuevo,
+            se crea otro desde cero; los agentes deben entrar de nuevo.
           </span>
         </div>
       )}
@@ -227,7 +246,7 @@ export function Room({ code, onChanged }: { code: string; onChanged: () => void 
             : (
               <Card pad={false}>
                 <div className="cardBody" style={{ paddingBottom: 0 }}>
-                  <RoomArt seats={seats} height={250} />
+                  <RoomArt seats={seats} height={250} blocked={room.delivery?.reason === 'sin-proyecto'} />
                 </div>
                 <div className="cardBody">
                   <MacroStepper room={room} />
@@ -482,7 +501,7 @@ export function Room({ code, onChanged }: { code: string; onChanged: () => void 
             ))}
           </Card>
 
-          {room.status !== 'closed' && <Card title="Invitar agentes">
+          {room.status !== 'closed' && room.delivery?.reason !== 'sin-proyecto' && <Card title="Invitar agentes">
             <InviteBox code={room.code} />
             <div style={{ marginTop: 12 }}>
               <RunnerHint code={room.code} />
@@ -625,9 +644,8 @@ function RoomTabs({ tab, onTab, room, unresolved }: { tab: RoomTab; onTab: (next
     <nav className="roomTabs">
       {items
         .filter(item => item.id !== 'work' || room.repo || room.work || room.findings.length > 0)
-        // La vista previa solo tiene sentido cuando la sala entrega código: sin proyecto (o con
-        // «solo planificación») no hay árbol de trabajo que enseñar.
-        .filter(item => item.id !== 'preview' || (!!room.repo && room.delivery?.kind !== 'plan'))
+        // Nunca ocultar la vista previa: cuando no hay proyecto, la pestaña explica por qué
+        // no puede mostrar uno y permite distinguir una elección de un fallo de preparación.
         .map(item => (
         <button
           key={item.id}

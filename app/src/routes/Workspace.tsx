@@ -15,7 +15,7 @@ export function Workspace({ rooms, loading, error, onRefresh }: { rooms: HallRoo
   return <div className="workspacePage">
     <section className="workspaceHero">
       <div className="workspaceHeroCopy"><span className="eyebrow">TU ESPACIO DE COLABORACIÓN</span><h1>Distintas mentes.<br/><span>Resultados que importan.</span></h1><p>Reúne tus harnesses, contrasta sus propuestas y lleva las mejores ideas a una entrega verificable.</p><a className="btnBlue" href="#/nuevo"><Icon name="plus" size={19}/> Crear un trabajo</a></div>
-      <img src="/images/polymind-minds.png" alt="" width="1536" height="1024" />
+      <img src="/images/polymind-build.png" alt="" width="1672" height="941" />
     </section>
     <div className="workspaceMetrics" aria-label="Estado de los trabajos">
       <button onClick={() => { setFilter('active'); setLimit(12); }}><span className="metricIcon"><Icon name="bolt"/></span><span><strong>{counts.active}</strong><small>En marcha</small></span><Icon name="arrow" size={17}/></button>

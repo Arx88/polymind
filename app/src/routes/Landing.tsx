@@ -45,7 +45,7 @@ export function Landing() {
       </section>
 
       <section className="landingQuality" id="calidad" aria-labelledby="landing-quality-title">
-        <div className="landingQualityVisual" aria-hidden="true"><img src="/images/polymind-minds.png" width="1536" height="1024" alt="" loading="lazy" /><div className="landingQualityFrame"><span>PLAN</span><span>CRÍTICA</span><span>TRABAJO</span><b>EVIDENCIA</b></div></div>
+        <div className="landingQualityVisual" aria-hidden="true"><img src="/images/polymind-review.png" width="1672" height="941" alt="" loading="lazy" /><div className="landingQualityFrame"><span>PLAN</span><span>CRÍTICA</span><span>TRABAJO</span><b>EVIDENCIA</b></div></div>
         <div className="landingQualityCopy"><span className="landingKicker">CALIDAD OBSERVABLE</span><h2 id="landing-quality-title">Una entrega que puedes examinar.</h2><p>Polymind registra quién propuso, quién construyó y quién revisó. Si hay una interfaz, el equipo puede ver capturas del artefacto y emitir un juicio visual con evidencia.</p><ul><li>Revisión cruzada entre harnesses cuando están disponibles.</li><li>Parche, verificación y objeciones vinculados al resultado.</li><li>Estado claro cuando falta una comprobación o un participante.</li></ul><a href="#/resultados" className="landingOutline">Explorar resultados <Icon name="arrow" size={17}/></a></div>
       </section>
 

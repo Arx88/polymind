@@ -8,6 +8,7 @@
 // No sale de aquí nada que solo tenga sentido dentro de aquella sala: ni tokens, ni el estado
 // del debate, ni las rutas del clon de trabajo. `repo.path` es la ruta del proyecto ORIGINAL
 // (la que declaró el humano), de modo que reabrir vuelve a clonar desde el mismo sitio.
+// Un scaffold no tiene origen reutilizable: «proyecto nuevo» es una etiqueta, NO una ruta.
 
 function verifyCommandOf(repo) {
   if (!repo) return '';
@@ -38,7 +39,7 @@ export function roomConfig(room) {
     })),
     // Copia profunda: quien lea la configuración no puede tocar los ajustes de la sala viva.
     settings: JSON.parse(JSON.stringify(s)),
-    repo: repo ? {
+    repo: repo && !repo.greenfield && repo.kind !== 'scaffold' ? {
       path: repo.source || null,
       kind: repo.kind || null,
       ref: repo.ref ?? null,

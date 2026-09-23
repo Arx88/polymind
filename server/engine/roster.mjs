@@ -7,6 +7,12 @@ import { log, activeAgents, nameOf, nextSeat, proposalOf } from './state.mjs';
 
 // ---------------------------------------------------------------- entrada
 export function joinRoom(room, profile = {}) {
+  // Si se pidió código y falló la preparación del proyecto, no gastar turnos de
+  // los harnesses en una sala que solo podrá entregar un plan por accidente.
+  if (!room.repo && !room.settings?.planOnly && room.artifacts?.deliveryWarning) {
+    throw new DebateError('project_unavailable',
+      'El proyecto no se pudo preparar. Reabre la tarea con un proyecto nuevo o corrige el repositorio antes de conectar harnesses.');
+  }
   const name = clampStr(String(profile.name || 'agente'), 40) || 'agente';
   // La lente es opcional y siempre declarada por el agente. El servidor NO reparte
   // identidades: quien no declara nada debate como su harness (y su modelo).
