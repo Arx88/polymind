@@ -134,3 +134,11 @@
   :is(.btnBlue,.btnPrimary,.btnGhost,.roomTab):active:not(:disabled),.nav a:hover svg,.agentRoster .agentRow:hover .polymindAvatar{transform:none}
   .workspaceHero,.workComposer>.pageHead,.resultHero,.workspaceMetrics>button,.workTile,.roomTabs{animation:none!important}
 }
+.deliveryStatusCallout{display:flex;align-items:center;justify-content:space-between;gap:24px;margin:0 0 16px;padding:18px 22px;border:1px solid #f7e2b8;border-radius:17px;background:var(--amber-soft);color:var(--ink)}
+.deliveryStatusCallout>div{min-width:0}
+.deliveryStatusCallout span{display:block;margin-bottom:5px;color:var(--amber-text);font-size:10px;font-weight:800;letter-spacing:.12em}
+.deliveryStatusCallout strong{display:block;font-size:17px;line-height:1.25;text-wrap:pretty}
+.deliveryStatusCallout p{margin:5px 0 0;color:var(--sub);font-size:13px;line-height:1.45;text-wrap:pretty}
+.deliveryStatusCallout>b{flex:none;color:var(--amber-text);font-size:25px;line-height:1;letter-spacing:-.04em}
+.deliveryStatusCallout>b small{display:block;margin-top:5px;font-size:11px;font-weight:650;letter-spacing:0;text-align:right}
+@media(max-width:680px){.deliveryStatusCallout{align-items:flex-start;flex-direction:column;gap:10px;padding:16px}.deliveryStatusCallout>b small{display:inline;margin-left:5px;text-align:left}}

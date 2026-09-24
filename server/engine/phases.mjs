@@ -653,6 +653,7 @@ export function closeReviewPhase(room) {
   const repairs = acceptance.blockers.filter(b => ['preview', 'tests', 'visual-rejected'].includes(b.code));
   for (const repair of repairs) {
     if (sugerencias.some(s => s.title === repair.title)) continue;
+    if (Object.values(room.work.items).some(i => i.title === repair.title && i.status !== 'integrated')) continue;
     sugerencias.push({ title: repair.title, claim: repair.title,
       evidence: 'Puerta de aceptación del producto: ' + repair.action,
       action: repair.code === 'tests'
@@ -664,7 +665,7 @@ export function closeReviewPhase(room) {
   const scopeAdded = ensureWorkItems(room);
   const retry = Object.values(room.work.items).filter(i => ['failed', 'skipped'].includes(i.status));
   const actionable = sugerencias.filter(s => room.settings.extraordinary || s.source === 'delivery' || s.severity !== 'low');
-  const puedeSeguir = ronda < maxRondas && (scopeAdded.length || retry.length || actionable.length);
+  const puedeSeguir = activeAgents(room).length > 0 && ronda < maxRondas && (scopeAdded.length || retry.length || actionable.length);
 
   // Los veredictos se guardan ANTES de dejar la fase: el informe congelado se arma después,
   // cuando `room.phase` ya es otra cosa, y sin este registro diría que nadie revisó nada.
@@ -1047,7 +1048,7 @@ export function forceFinish(room) {
   if (phase === 'work') {
     closeWork(room, 'tiempo máximo de la sala agotado');
     const winnerId = room.phase.data.winnerId;
-    enterPhase(room, 'review', { winnerId });
+    enterPhase(room, 'review', { winnerId, round: room.work?.reviewRounds || 0 });
     room.finalReviewDeadline = room.phase.deadline;
     return;
   }

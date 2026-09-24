@@ -277,7 +277,7 @@ export class Hall {
     this.cache.set(room.code, room);
     return room;
   }
-  get(code) {
+  get(code, { sweep = true } = {}) {
     code = String(code || '').toLowerCase();
     let room = this.cache.get(code);
     if (!room) {
@@ -293,8 +293,12 @@ export class Hall {
       // proceso, sin que nadie tenga que reiniciar nada a mano.
       room = this.reconcile(code, room);
     }
-    if (this.sweep && this.sweep(room)) room.__changed = true;
+    if (sweep && this.sweep && room.status !== 'closed' && this.sweep(room)) room.__changed = true;
     return room;
+  }
+  count() {
+    try { return fs.readdirSync(this.dir).filter(f => /^[a-z0-9]{4,12}\.json$/i.test(f)).length; }
+    catch { return 0; }
   }
   persist(room) {
     const f = this.fileOf(room.code);
@@ -364,7 +368,9 @@ export class Hall {
     try { files = fs.readdirSync(this.dir); } catch { return out; }
     for (const f of files) {
       if (!f.endsWith('.json')) continue;
-      const room = this.get(f.slice(0, -5));
+      // Listar no debe avanzar fases ni ejecutar trabajo. El reloj hace el barrido
+      // una vez por sala; la vista y el health check solo leen estado.
+      const room = this.get(f.slice(0, -5), { sweep: false });
       if (!room) continue;
       out.push({
         code: room.code,

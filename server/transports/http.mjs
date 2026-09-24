@@ -383,7 +383,7 @@ export function createAgora({ dataDir, appDistDir, clockMs = 1000, memory = unde
     if (m === 'GET' && p === '/api/health') {
       sendJSON(res, 200, {
         ok: true,
-        rooms: hall.list().length,
+        rooms: hall.count(),
         ...hub.stats(),
         // La memoria, a la vista: cuándo se publicó por última vez y si quedó algo pendiente.
         ...(mem.enabled ? { memory: mem.status() } : null),

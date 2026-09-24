@@ -97,6 +97,9 @@ export function Room({ code, onChanged }: { code: string; onChanged: () => void 
   const workHot = workItems.filter(i => ['claimed', 'in-review', 'verifying'].includes(i.status)).length;
   const workFree = workItems.filter(i => i.status === 'open').length;
   const workOpen = workTotal > 0 && workDone < workTotal;
+  const workScope = room.work ? room.work.stats.items + (room.work.stats.backlog ?? room.work.backlog?.length ?? 0) : 0;
+  const deliveryPending = room.status === 'closed' && room.delivery?.acceptance?.state === 'incomplete';
+  const deliveryBlockers = room.delivery?.acceptance?.blockers || [];
   const proposals = [...room.proposals].sort((a, b) => a.createdAt - b.createdAt);
   // Con mejora recursiva, la sala acumula propuestas de varias rondas: aquí manda la ronda
   // abierta (las anteriores ya se decidieron y su trabajo está integrado o aplazado).
@@ -127,8 +130,8 @@ export function Room({ code, onChanged }: { code: string; onChanged: () => void 
               <Tag tone="grey">{plural(room.repo.files, 'archivo')} {room.delivery?.reason === 'proyecto-nuevo' ? 'ya en el proyecto' : 'del repo'}</Tag>
               {room.repo.verify && <Tag tone="blue">verifica <span className="mono">{room.repo.verify}</span></Tag>}
               {room.work && (
-                <Tag tone={room.work.stats.integrated ? 'green' : 'grey'}>
-                  {room.work.stats.integrated}/{room.work.stats.items} mejoras integradas
+                <Tag tone={deliveryPending || room.work.stats.backlog ? 'amber' : room.work.stats.integrated ? 'green' : 'grey'}>
+                  {room.work.stats.integrated}/{workScope} tareas del alcance integradas
                 </Tag>
               )}
               {/* Mejora recursiva: en qué ronda va y por qué paró, si paró. */}
@@ -175,6 +178,16 @@ export function Room({ code, onChanged }: { code: string; onChanged: () => void 
         room={room}
         unresolved={unresolvedCount(room)}
       />
+      {deliveryPending && tab === 'live' && (
+        <section className="deliveryStatusCallout" aria-label="Entrega pendiente">
+          <div>
+            <span>LA SESIÓN CERRÓ · LA ENTREGA SIGUE PENDIENTE</span>
+            <strong>{deliveryBlockers[0]?.title || 'Falta comprobar el resultado final'}</strong>
+            <p>{deliveryBlockers.length} condiciones por resolver. El plan y los cambios registrados todavía no son un producto entregado.</p>
+          </div>
+          {room.work && <b>{room.work.stats.integrated}<small> de {workScope} tareas</small></b>}
+        </section>
+      )}
       {room.phaseAgreement && <div className="phaseAgreementBanner" role="status">
         <b>Avance por acuerdo · sin reloj</b>
         <span>{room.phaseAgreement.ready.length} de {room.phaseAgreement.total} agentes listos para pasar.</span>
@@ -223,7 +236,7 @@ export function Room({ code, onChanged }: { code: string; onChanged: () => void 
           tiene tarea, agenda y reglas que merece la pena recuperar). */}
       {room.status === 'closed' && tab === 'live' && (
         <div className="row wrap" style={{ gap: 8, margin: '0 0 14px' }}>
-          <button className="btnPrimary" onClick={() => navigate(`#/nuevo?from=${room.code}`)}>
+          <button className="btnGhost" onClick={() => navigate(`#/nuevo?from=${room.code}`)}>
             <Icon name="refresh" size={15} /> Reabrir con esta configuración
           </button>
           <button className="btnGhost" onClick={() => setTab('config')}>
@@ -627,8 +640,8 @@ function RoomTabs({ tab, onTab, room, unresolved }: { tab: RoomTab; onTab: (next
     {
       id: 'work',
       label: 'Trabajo',
-      badge: work ? `${work.stats.integrated}/${work.stats.items}` : (room.repo ? 'sin tareas' : 'sin repo'),
-      tone: reviewPending > 0 ? 'amber' : work?.stats.integrated ? 'green' : 'grey',
+      badge: work ? `${work.stats.integrated}/${work.stats.items + (work.stats.backlog ?? work.backlog?.length ?? 0)}` : (room.repo ? 'sin tareas' : 'sin repo'),
+      tone: reviewPending > 0 || (work?.stats.backlog || 0) > 0 ? 'amber' : work?.stats.integrated ? 'green' : 'grey',
     },
     {
       id: 'preview',

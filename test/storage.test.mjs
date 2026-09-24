@@ -44,6 +44,24 @@ function staleCopyOf(room) {
   };
 }
 
+test('the health count and room listing never advance phases', t => {
+  const dir = tmpDir(t, 'polymind-health-');
+  let sweeps = 0;
+  const hall = new Hall(dir, { sweep: () => { sweeps += 1; return false; } });
+  const room = hall.create({ task: 'Una tarea cuyo plazo no depende de la lista' });
+
+  assert.equal(hall.count(), 1);
+  assert.equal(hall.list().length, 1);
+  assert.equal(sweeps, 0);
+  hall.get(room.code);
+  assert.equal(sweeps, 1, 'el reloj puede seguir avanzando una sala abierta');
+
+  room.status = 'closed';
+  hall.persist(room);
+  hall.get(room.code);
+  assert.equal(sweeps, 1, 'una sala cerrada no vuelve a ejecutar el motor');
+});
+
 // Borrar un trabajo es una decisión del humano y tiene que ser TOTAL: si el JSON quedara en el
 // directorio, la sala reaparecería en la siguiente lista (y con memoria publicada volvería del
 // remoto). El borrado se lleva el archivo, su temporal, la caché y las marcas de progreso.

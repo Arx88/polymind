@@ -134,7 +134,7 @@ export function start(port = parseInt(process.env.PORT || '8787', 10), opts = {}
           localUrl: base,
           lanUrl: lan ? `http://${lan}:${p}` : null,
           roomsOnDisk: roomsOnDisk(DATA_DIR),
-          roomsInMemory: agora.hall.list().length,
+          roomsInMemory: agora.hall.count(),
           waitSecMax: Number(process.env.AGORA_MAX_WAIT_SEC || 120),
           memoryRepo: agora.memory?.enabled ? agora.memory.repo : null,
         });
