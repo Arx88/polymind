@@ -107,7 +107,10 @@ export function start(port = parseInt(process.env.PORT || '8787', 10), opts = {}
         if (err.code === 'EADDRINUSE' && !portIsGiven && attempt < 10) tryListen(p + 1, attempt + 1);
         else { releaseDataLock(); reject(err); }
       });
-      agora.server.listen(p, () => {
+      // Render enruta al puerto del contenedor por su interfaz de red. Escuchar
+      // explícitamente en IPv4 evita que una configuración IPv6-only deje el
+      // proceso vivo pero invisible para el proxy (502 en todas las rutas).
+      agora.server.listen(p, '0.0.0.0', () => {
         const lan = lanAddress();
         const base = `http://localhost:${p}`;
         setServerBase(`http://127.0.0.1:${p}`);
